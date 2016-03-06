@@ -1,0 +1,3 @@
+# Ignore configuration files used for testing
+zfs-snap/__pycache__/
+.vagrant/
