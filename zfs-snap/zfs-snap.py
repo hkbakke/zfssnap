@@ -28,7 +28,8 @@ class ZFSSnap(object):
         output = subprocess.check_output([
             'zfs', 'list', '-H',
             '-o', 'name,zol:zfs-snap,zol:zfs-snap:%s,'
-                  'zol:zfs-snap:%s:keep' % (self.label, self.label),
+                  'zol:zfs-snap:keep,zol:zfs-snap:%s:keep' %
+                      (self.label, self.label),
             '-t', 'filesystem'
         ])
 
@@ -36,30 +37,41 @@ class ZFSSnap(object):
             line = line.strip()
 
             if line:
-                name, global_enable, label_enable, keep = line.split('\t')
-                true_values = set([
-                    '-',
-                    'true'
-                ])
+                name, fs_enable, label_enable, fs_keep, label_keep = line.split('\t')
 
-                if global_enable.lower() in true_values:
-                    global_enable = True
-                else:
-                    global_enable = False
+                # The label property toggling snapshots have priority over
+                # the global file system property if they are different.
+                enable_snapshots = True
 
-                if label_enable.lower() in true_values:
-                    label_enable = True
-                else:
-                    label_enable = False
+                if fs_enable.lower() == 'true':
+                    enable_snapshots = True
+                elif fs_enable.lower() == 'false':
+                    enable_snapshots = False
 
-                if keep == '-' or self.force:
+                if label_enable.lower() == 'true':
+                    enable_snapshots = True
+                elif label_enable.lower() == 'false':
+                    enable_snapshots = False
+
+                # Use the keep value given by command line, unless overriden
+                # either globally or per label by ZFS properties.
+                # Per label is prioritized over the global setting. If --force
+                # is given by command line the command line value will be used.
+                keep = self.keep
+
+                if fs_keep != '-':
+                    keep = fs_keep
+
+                if label_keep != '-':
+                    keep = label_keep
+
+                if self.force:
                     keep = self.keep
 
                 yield {
                     'name': name,
-                    'global_enable': global_enable,
-                    'label_enable': label_enable,
-                    'keep': int(keep)
+                    'enable_snapshots': enable_snapshots,
+                    'keep': int(keep),
                 }
 
     def _get_all_snapshots(self):
@@ -93,7 +105,7 @@ class ZFSSnap(object):
 
     def create_snapshots(self):
         for fs in self._get_all_fs():
-            if not fs['global_enable'] or not fs['label_enable']:
+            if not fs['enable_snapshots']:
                 continue
 
             if fs['keep'] < 1:
@@ -110,7 +122,7 @@ class ZFSSnap(object):
         snapshots = [s for s in self._get_all_snapshots()]
 
         for fs in self._get_all_fs():
-            if not fs['global_enable'] or not fs['label_enable']:
+            if not fs['enable_snapshots']:
                 keep = 0
             else:
                 keep = fs['keep']
@@ -126,9 +138,9 @@ def main():
         description='Automatic snapshotting for ZFS on Linux')
     parser.add_argument('-q', '--quiet', help='Suppress output from script.',
                         action='store_true')
-    parser.add_argument('-l', '--label', help='Snapshot label',
+    parser.add_argument('-l', '--label', help='Snapshot label.',
                         required=True)
-    parser.add_argument('-k', '--keep', help='Number of snapshots to keep',
+    parser.add_argument('-k', '--keep', help='Number of snapshots to keep.',
                         required=True)
     parser.add_argument('-f', '--force',
                         help='Override ZFS property keep value if set',
