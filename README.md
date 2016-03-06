@@ -18,14 +18,13 @@ Previous Versions.
 * `zol:zfs-snap=[true|false|-]`: Toggle snapshots for all labels on a file
   system. Equals `true` if not set.
 * `zol:zfs-snap:<label>=[true|false|-]`: Toggle snapshots for a specific label.
-  Equals: `true` if not set.
+  Equals `true` if not set. Overrides the global property.
 * `zol:zfs-snap:keep=[int]`: Override the `keep` value for a file system.
-  This overrides the global keep given on the command line for that file system.
-  This can be overriden by commandline by specifying the `--force` option.
+  This overrides the keep given on the command line for that file system.
+  May be overridden by command line by specifying the `--force` option.
 * `zol:zfs-snap:<label>:keep=[int]`: Override the `keep` value for a label.
-  This overrides the global keep given on the command line for that label on
-  that file system.
-  This can be overriden by commandline by specifying the `--force` option.
+  This overrides the global property and the value given on the command line.
+  May be overridden by command line by specifying the `--force` option.
 
 ## Usage
 Create a snapshot of all ZFS file systems labeled `hourly`. Keep no more than 24
@@ -34,7 +33,7 @@ snapshots by deleting the oldest ones.
     ./zfs-snap.py --label=hourly --keep=24
 Delete all snapshots for a label on all file systems. Note that disabling
 snapshots for a file system using properties will automatically delete all
-existing snapshots on the next run for that file system.
+existing snapshots on the next run for that label or file system.
 
     ./zfs-snap.py --label=monthly --keep=0
 Override `keep` value set in ZFS property
