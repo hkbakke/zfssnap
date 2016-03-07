@@ -41,6 +41,7 @@ to delete some snapshots without having to change the properties.
 
     ./zfs-snap.py --label=frequent --keep=1 --force
 List all options:
+
     ./zfs-snap.py --help
 
 ## Scedule snapshots
