@@ -114,8 +114,7 @@ class ZFSSnap(object):
 
             self._create_snapshot(fs['name'])
 
-    @staticmethod
-    def _destroy_snapshot(name):
+    def _destroy_snapshot(self, name):
         logger.info('Destroying snapshot %s', name)
         subprocess.check_call([self.zfs, 'destroy', name])
 
