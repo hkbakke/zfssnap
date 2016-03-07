@@ -52,7 +52,7 @@ crontab for this purpose:
     8    */1    *  *  *   /usr/sbin/zfs-snap --label=hourly --keep=24 --quiet
     16   0      *  *  *   /usr/sbin/zfs-snap --label=daily --keep=31 --quiet
 
-* `zfs-snap.py` have been symlinked to `/usr/sbin/zfs-snap` for ease of use.
+* `zfs-snap.py` has been symlinked to `/usr/sbin/zfs-snap` for ease of use.
 * Make sure the snapshot jobs are not triggered at exactly the same time 
   (normally by using the same minute). The time resolution of the snapshot 
   naming are 1 second, but you may still have name collisions when the cron 
