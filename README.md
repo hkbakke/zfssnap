@@ -15,9 +15,9 @@ Previous Versions.
 
 ## ZFS properties used
 * `zol:zfs-snap:label=[str]`: Identifies the label of the snapshot.
-* `zol:zfs-snap=[true|false|-]`: Toggle snapshots for all labels on a file
+* `zol:zfs-snap=[true|false]`: Toggle snapshots for all labels on a file
   system. Equals `true` if not set.
-* `zol:zfs-snap:<label>=[true|false|-]`: Toggle snapshots for a specific label.
+* `zol:zfs-snap:<label>=[true|false]`: Toggle snapshots for a specific label.
   Equals `true` if not set. Overrides the global property.
 * `zol:zfs-snap:keep=[int]`: Override the `keep` value for a file system.
   This overrides the keep given on the command line for that file system.
