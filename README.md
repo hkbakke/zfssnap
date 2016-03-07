@@ -47,9 +47,9 @@ List all options:
 To schedule snapshots crontab are normally used. This is an example root
 crontab for this purpose:
 
-    */15 *      *  *  *   /usr/sbin/zfs-snap --label=frequent --keep=4 -q
-    8    */1    *  *  *   /usr/sbin/zfs-snap --label=hourly --keep=24 -q
-    16   0      *  *  *   /usr/sbin/zfs-snap --label=daily --keep=31 -q
+    */15 *      *  *  *   /usr/sbin/zfs-snap --label=frequent --keep=4 --quiet
+    8    */1    *  *  *   /usr/sbin/zfs-snap --label=hourly --keep=24 --quiet
+    16   0      *  *  *   /usr/sbin/zfs-snap --label=daily --keep=31 --quiet
 
 * `zfs-snap.py` have been symlinked to `/usr/sbin/zfs-snap` for ease of use.
 * Make sure the snapshot jobs are not triggered at exactly the same time 
