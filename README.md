@@ -63,3 +63,14 @@ The .zfs directory can remain hidden.
 
     [<some share>]
     vfs_objects = shadow_copy2
+
+## Example usage of ZFS properties
+List snapshots with zfs-snap labels
+
+    zfs list -o name,zol:zfs-snap:label -t snapshot
+Disable snapshots for a label on a dataset
+
+    zfs set zol:zfs-snap:monthly=false zpool1/temp
+Override `keep` value for label on dataset
+
+    zfs set zol:zfs-snap:daily:keep=62 zpool1/www
