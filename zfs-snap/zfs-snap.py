@@ -42,31 +42,28 @@ class ZFSSnap(object):
 
                 # The label property toggling snapshots have priority over
                 # the global file system property if they are different.
-                enable_snapshots = True
-
-                if fs_enable.lower() == 'true':
-                    enable_snapshots = True
-                elif fs_enable.lower() == 'false':
-                    enable_snapshots = False
-
                 if label_enable.lower() == 'true':
                     enable_snapshots = True
                 elif label_enable.lower() == 'false':
                     enable_snapshots = False
+                elif fs_enable.lower() == 'true':
+                    enable_snapshots = True
+                elif fs_enable.lower() == 'false':
+                    enable_snapshots = False
+                else:
+                    enable_snapshots = True
 
                 # Use the keep value given by command line, unless overriden
                 # either globally or per label by ZFS properties.
                 # Per label is prioritized over the global setting. If --force
                 # is given by command line the command line value will be used.
-                keep = self.keep
-
-                if fs_keep != '-':
-                    keep = fs_keep
-
-                if label_keep != '-':
-                    keep = label_keep
-
                 if self.force:
+                    keep = self.keep
+                elif label_keep != '-':
+                    keep = label_keep
+                elif fs_keep != '-':
+                    keep = fs_keep
+                else:
                     keep = self.keep
 
                 yield {
