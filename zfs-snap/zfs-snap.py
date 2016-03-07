@@ -14,6 +14,7 @@ class ZFSSnap(object):
         self.label = label
         self.keep = keep
         self.force = force
+        self.zfs = '/sbin/zfs'
 
     def __enter__(self):
         return self
@@ -26,7 +27,7 @@ class ZFSSnap(object):
 
     def _get_all_fs(self):
         output = subprocess.check_output([
-            'zfs', 'list', '-H',
+            self.zfs, 'list', '-H',
             '-o', 'name,zol:zfs-snap,zol:zfs-snap:%s,'
                   'zol:zfs-snap:keep,zol:zfs-snap:%s:keep' %
                       (self.label, self.label),
@@ -76,7 +77,7 @@ class ZFSSnap(object):
 
     def _get_all_snapshots(self):
         output = subprocess.check_output([
-            'zfs', 'list', '-H',
+            self.zfs, 'list', '-H',
             '-o', 'name,zol:zfs-snap:label', '-t', 'snapshot'
         ])
 
@@ -100,7 +101,7 @@ class ZFSSnap(object):
         logger.info('Creating snapshot %s', name)
 
         subprocess.check_call([
-            'zfs', 'snapshot', '-o', 'zol:zfs-snap:label=%s' %
+            self.zfs, 'snapshot', '-o', 'zol:zfs-snap:label=%s' %
                 self.label, name])
 
     def create_snapshots(self):
@@ -116,7 +117,7 @@ class ZFSSnap(object):
     @staticmethod
     def _destroy_snapshot(name):
         logger.info('Destroying snapshot %s', name)
-        subprocess.check_call(['zfs', 'destroy', name])
+        subprocess.check_call([self.zfs, 'destroy', name])
 
     def destroy_old_snapshots(self):
         snapshots = [s for s in self._get_all_snapshots()]
