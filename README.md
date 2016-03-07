@@ -46,6 +46,20 @@ List all options:
 To schedule snapshots crontab are normally used. This is an example root
 crontab for this purpose:
 
-    */15 *      *  *  *   /root/zfs-snap/zfs-snap/zfs-snap.py --label=frequent --keep=4 -q
-    0    */1    *  *  *   /root/zfs-snap/zfs-snap/zfs-snap.py --label=hourly --keep=24 -q
-    1    0      *  *  *   /root/zfs-snap/zfs-snap/zfs-snap.py --label=daily --keep=31 -q
+    */15 *      *  *  *   /usr/sbin/zfs-snap --label=frequent --keep=4 -q
+    0    */1    *  *  *   /usr/sbin/zfs-snap --label=hourly --keep=24 -q
+    1    0      *  *  *   /usr/sbin/zfs-snap --label=daily --keep=31 -q
+
+`zfs-snap.py` have been symlinked to `/usr/sbin/zfs-snap` for ease of use.
+
+## Samba configuration for Previous Version
+The .zfs directory can remain hidden.
+
+    [global]
+    shadow: snapdir = .zfs/snapshot
+    shadow: sort = desc
+    shadow: format = zfs-snap_%Y%m%dT%H%M%SZ
+    shadow: localtime = no
+
+    [<some share>]
+    vfs_objects = shadow_copy2
