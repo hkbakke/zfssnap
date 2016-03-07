@@ -47,10 +47,17 @@ To schedule snapshots crontab are normally used. This is an example root
 crontab for this purpose:
 
     */15 *      *  *  *   /usr/sbin/zfs-snap --label=frequent --keep=4 -q
-    0    */1    *  *  *   /usr/sbin/zfs-snap --label=hourly --keep=24 -q
-    1    0      *  *  *   /usr/sbin/zfs-snap --label=daily --keep=31 -q
+    8    */1    *  *  *   /usr/sbin/zfs-snap --label=hourly --keep=24 -q
+    16   0      *  *  *   /usr/sbin/zfs-snap --label=daily --keep=31 -q
 
-`zfs-snap.py` have been symlinked to `/usr/sbin/zfs-snap` for ease of use.
+* `zfs-snap.py` have been symlinked to `/usr/sbin/zfs-snap` for ease of use.
+* Make sure the snapshot jobs are not triggered at exactly the same time 
+  (normally by using the same minute). The time resolution of the snapshot 
+  naming are 1 second, but you may still have name collisions when the cron 
+  jobs are triggered at the same time, as the label are not included in the 
+  snapshot name to be compatible with Previous Versions. 
+  Nothing bad happens, though. The script just exits with an error and you get
+  no snapshots that run.
 
 ## Samba configuration for Previous Version
 The .zfs directory can remain hidden.
