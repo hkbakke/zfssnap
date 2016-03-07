@@ -36,9 +36,10 @@ snapshots for a file system using properties will automatically delete all
 existing snapshots on the next run for that label or file system.
 
     ./zfs-snap.py --label=monthly --keep=0
-Override `keep` value set in ZFS property
+Override `keep` value set in ZFS property. Typically useful if you want
+to delete some snapshots without having to change the properties.
 
-    ./zfs-snap.py --label=frequent --keep=4 --force
+    ./zfs-snap.py --label=frequent --keep=1 --force
 List all options:
     ./zfs-snap.py --help
 
