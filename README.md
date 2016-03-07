@@ -1,8 +1,9 @@
 # zfs-snap
 zfs-snap is a python script that automates the task of creating snapshots
 for ZFS on Linux systems. By default it will snapshot all ZFS filesystems on
-the host, but this can be overriden either globally or per label via ZFS
-properties. The same goes for `keep` values which also can be overriden per
+the host, but this can be overriden either globally per file system or per 
+label via ZFS properties. 
+The same goes for `keep` values which also can be overriden per
 label. The properties are subject to the same inheritance rules as other
 ZFS properties.
 
@@ -20,7 +21,7 @@ Previous Versions.
 * `zol:zfs-snap:<label>=[true|false]`: Toggle snapshots for a specific label.
   Equals `true` if not set. Overrides the global property.
 * `zol:zfs-snap:keep=[int]`: Override the `keep` value for a file system.
-  This overrides the keep given on the command line for that file system.
+  This overrides `--keep` given on the command line for that file system.
   May be overridden by command line by specifying the `--force` option.
 * `zol:zfs-snap:<label>:keep=[int]`: Override the `keep` value for a label.
   This overrides the global property and the value given on the command line.
