@@ -83,13 +83,12 @@ class ZFSSnap(object):
 
             if line:
                 name, label = line.split('\t')
-                fs, id = name.split('@')
+                fs, _ = name.split('@')
 
                 if label == self.label:
                     yield {
                         'name': name,
                         'fs': fs,
-                        'id': id
                     }
 
     def _create_snapshot(self, fs):
