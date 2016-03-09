@@ -57,7 +57,7 @@ List all options:
 
     ./zfs-snap.py --help
 
-## Scedule snapshots
+## Schedule snapshots
 To schedule snapshots crontab are normally used. This is an example root
 crontab for this purpose:
 
@@ -67,8 +67,8 @@ crontab for this purpose:
 
 * `zfs-snap.py` has been symlinked to `/usr/sbin/zfs-snap` for ease of use.
 * `--quiet` can be used to supress all output, even warnings and errors.
-  However you normally want to get a notification from cron if something goes
-  wrong.
+  However, you are normally interested in getting a notification from cron if 
+  something goes wrong.
 * Make sure the snapshot jobs are not triggered at exactly the same time 
   (normally by using the same minute). The time resolution of the snapshot 
   naming are 1 second, but you may still have name collisions when the cron 
