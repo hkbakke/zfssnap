@@ -11,6 +11,10 @@ As ZFS properties are used to identify the snapshot label the snapshot names
 are compatible with the shadow_copy2 module in Samba for use with
 Previous Versions.
 
+zfs-snap also supports using free space on the file system as a trigger to
+delete old snapshots or abort the snapshot altogether if not enough space can
+be freed.
+
 ## Requirements
 * Only tested on Python v3.4 on Debian Jessie.
 
@@ -43,17 +47,27 @@ to delete some snapshots without having to change the properties.
     ./zfs-snap.py --label=frequent --keep=1 --force
 List all options:
 
+    ./zfs-snap.py --label=daily --keep=1000 --min-free=25 --min-keep=3
+Keep the last 1000 daily snapshots, but if there is less than 25% free space,
+start to delete old snapshots until the min-free threshold is reached, but
+always keep at least 3 snapshots. If there is not enough free space after all
+but 3 snapshots have been destroyed, zfs-snap will abort without creating a new
+snapshot.
+
     ./zfs-snap.py --help
 
 ## Scedule snapshots
 To schedule snapshots crontab are normally used. This is an example root
 crontab for this purpose:
 
-    */15 *      *  *  *   /usr/sbin/zfs-snap --label=frequent --keep=4 --quiet
-    8    */1    *  *  *   /usr/sbin/zfs-snap --label=hourly --keep=24 --quiet
-    16   0      *  *  *   /usr/sbin/zfs-snap --label=daily --keep=31 --quiet
+    */15 *      *  *  *   /usr/sbin/zfs-snap --label=frequent --keep=4 --verbosity=WARNING
+    8    */1    *  *  *   /usr/sbin/zfs-snap --label=hourly --keep=24 --verbosity=WARNING
+    16   0      *  *  *   /usr/sbin/zfs-snap --label=daily --keep=31 --verbosity=WARNING
 
 * `zfs-snap.py` has been symlinked to `/usr/sbin/zfs-snap` for ease of use.
+* `--quiet` can be used to supress all output, even warnings and errors.
+  However you normally wan't to get a notification from cron if something goes
+  wrong.
 * Make sure the snapshot jobs are not triggered at exactly the same time 
   (normally by using the same minute). The time resolution of the snapshot 
   naming are 1 second, but you may still have name collisions when the cron 
