@@ -67,7 +67,7 @@ crontab for this purpose:
 
 * `zfs-snap.py` has been symlinked to `/usr/sbin/zfs-snap` for ease of use.
 * `--quiet` can be used to supress all output, even warnings and errors.
-  However you normally wan't to get a notification from cron if something goes
+  However you normally want to get a notification from cron if something goes
   wrong.
 * Make sure the snapshot jobs are not triggered at exactly the same time 
   (normally by using the same minute). The time resolution of the snapshot 
