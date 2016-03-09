@@ -22,6 +22,9 @@ be freed.
 * `zol:zfs-snap:label=[str]`: Identifies the label of the snapshot.
 * `zol:zfs-snap=[true|false]`: Toggle snapshots for all labels on a file
   system. Equals `true` if not set.
+  Note that disabling snapshots for a file system using properties will 
+  automatically delete all existing snapshots on the next run for that label 
+  or file system.
 * `zol:zfs-snap:<label>=[true|false]`: Toggle snapshots for a specific label.
   Equals `true` if not set. Overrides the global property.
 * `zol:zfs-snap:keep=[int]`: Override the `keep` value for a file system.
@@ -35,16 +38,14 @@ be freed.
 Create a snapshot of all ZFS file systems labeled `hourly`. Keep no more than 24
 snapshots by deleting the oldest ones.
 
-    ./zfs-snap.py --label=hourly --keep=24
-Delete all snapshots for a label on all file systems. Note that disabling
-snapshots for a file system using properties will automatically delete all
-existing snapshots on the next run for that label or file system.
+    ./zfs-snap.py --label hourly --keep 24
+Delete all snapshots for a label on a selected file system.
 
-    ./zfs-snap.py --label=monthly --keep=0
+    ./zfs-snap.py --label monthly --keep 0 --file-system zpool1/dev
 Override `keep` value set in ZFS property. Typically useful if you want
 to delete some snapshots without having to change the properties.
 
-    ./zfs-snap.py --label=frequent --keep=1 --force
+    ./zfs-snap.py --label frequent --keep 1 --force
 
 Keep the last 1000 daily snapshots, but if there is less than 25% free space,
 start to delete old snapshots until the min-free threshold is reached, but
@@ -52,7 +53,7 @@ always keep at least 3 snapshots. If there is not enough free space after all
 but 3 snapshots have been destroyed, zfs-snap will abort without creating a new
 snapshot.
 
-    ./zfs-snap.py --label=daily --keep=1000 --min-free=25 --min-keep=3
+    ./zfs-snap.py --label daily --keep 1000 --min-free 25 --min-keep 3
 List all options:
 
     ./zfs-snap.py --help
@@ -61,9 +62,9 @@ List all options:
 To schedule snapshots crontab are normally used. This is an example root
 crontab for this purpose:
 
-    */15 *      *  *  *   /usr/sbin/zfs-snap --label=frequent --keep=4 --verbosity=WARNING
-    8    */1    *  *  *   /usr/sbin/zfs-snap --label=hourly --keep=24 --verbosity=WARNING
-    16   0      *  *  *   /usr/sbin/zfs-snap --label=daily --keep=31 --verbosity=WARNING
+    */15 *      *  *  *   /usr/sbin/zfs-snap --label frequent --keep 4 --verbosity WARNING
+    8    */1    *  *  *   /usr/sbin/zfs-snap --label hourly --keep 24 --verbosity WARNING
+    16   0      *  *  *   /usr/sbin/zfs-snap --label daily --keep 31 --verbosity WARNING
 
 * `zfs-snap.py` has been symlinked to `/usr/sbin/zfs-snap` for ease of use.
 * `--quiet` can be used to supress all output, even warnings and errors.
