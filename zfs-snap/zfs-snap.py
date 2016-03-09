@@ -25,14 +25,19 @@ class ZFSSnap(object):
         elif exc_type is not None:
             logger.error(exc_value)
 
-    def _get_all_fs(self):
-        output = subprocess.check_output([
+    def _get_all_fs(self, file_system=None):
+        zfs_fs_cmd = [
             self.zfs, 'list', '-H', '-p',
             '-o', 'name,used,avail,zol:zfs-snap,zol:zfs-snap:%s,'
                   'zol:zfs-snap:keep,zol:zfs-snap:%s:keep' %
                       (self.label, self.label),
             '-t', 'filesystem'
-        ])
+        ]
+
+        if file_system:
+            zfs_fs_cmd.append(file_system)
+
+        output = subprocess.check_output(zfs_fs_cmd)
 
         for line in output.decode('utf8').split('\n'):
             line = line.strip()
@@ -112,8 +117,8 @@ class ZFSSnap(object):
             self.zfs, 'snapshot', '-o', 'zol:zfs-snap:label=%s' %
                 self.label, name])
 
-    def create_snapshots(self, min_free, min_keep):
-        for fs in self._get_all_fs():
+    def create_snapshots(self, file_system, min_free, min_keep):
+        for fs in self._get_all_fs(file_system):
             if not fs['enable_snapshots']:
                 continue
 
@@ -154,8 +159,8 @@ class ZFSSnap(object):
             self._destroy_snapshot(snapshot)
             return True
 
-    def destroy_old_snapshots(self):
-        for fs in self._get_all_fs():
+    def destroy_old_snapshots(self, file_system):
+        for fs in self._get_all_fs(file_system):
             if not fs['enable_snapshots']:
                 keep = 0
             else:
@@ -198,6 +203,8 @@ def main():
                         ],
                         default='DEBUG',
                         help='Set log level for console output.')
+    parser.add_argument('-z', '--file-system',
+                        help='Select specific file system.')
     args = parser.parse_args()
 
     if not args.quiet:
@@ -209,8 +216,8 @@ def main():
 
     try:
         with ZFSSnap(args.label, args.keep, args.force) as z:
-            z.create_snapshots(args.min_free, args.min_keep)
-            z.destroy_old_snapshots()
+            z.create_snapshots(args.file_system, args.min_free, args.min_keep)
+            z.destroy_old_snapshots(args.file_system)
     except KeyboardInterrupt:
         sys.exit(2)
 
