@@ -45,14 +45,15 @@ Override `keep` value set in ZFS property. Typically useful if you want
 to delete some snapshots without having to change the properties.
 
     ./zfs-snap.py --label=frequent --keep=1 --force
-List all options:
 
-    ./zfs-snap.py --label=daily --keep=1000 --min-free=25 --min-keep=3
 Keep the last 1000 daily snapshots, but if there is less than 25% free space,
 start to delete old snapshots until the min-free threshold is reached, but
 always keep at least 3 snapshots. If there is not enough free space after all
 but 3 snapshots have been destroyed, zfs-snap will abort without creating a new
 snapshot.
+
+    ./zfs-snap.py --label=daily --keep=1000 --min-free=25 --min-keep=3
+List all options:
 
     ./zfs-snap.py --help
 
