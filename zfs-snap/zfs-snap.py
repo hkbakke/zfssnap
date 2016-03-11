@@ -117,7 +117,7 @@ class ZFSSnap(object):
             self.zfs, 'snapshot', '-o', 'zol:zfs-snap:label=%s' %
                 self.label, name])
 
-    def create_snapshots(self, file_system, min_free, min_keep):
+    def create_snapshots(self, min_free, min_keep, file_system=None):
         for fs in self._get_all_fs(file_system):
             if not fs['enable_snapshots']:
                 continue
@@ -159,7 +159,7 @@ class ZFSSnap(object):
             self._destroy_snapshot(snapshot)
             return True
 
-    def destroy_old_snapshots(self, file_system):
+    def destroy_old_snapshots(self, file_system=None):
         for fs in self._get_all_fs(file_system):
             if not fs['enable_snapshots']:
                 keep = 0
@@ -216,7 +216,7 @@ def main():
 
     try:
         with ZFSSnap(args.label, args.keep, args.force) as z:
-            z.create_snapshots(args.file_system, args.min_free, args.min_keep)
+            z.create_snapshots(args.min_free, args.min_keep, args.file_system)
             z.destroy_old_snapshots(args.file_system)
     except KeyboardInterrupt:
         sys.exit(2)
