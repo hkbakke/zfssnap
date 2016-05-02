@@ -4,17 +4,179 @@ import argparse
 import logging
 import sys
 import subprocess
+import re
 from datetime import datetime
+from operator import attrgetter
+
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
+ZFS = '/sbin/zfs'
+
+
+class ZFSSnapshot(object):
+    def __init__(self, name):
+        self.name = name
+
+    def create(self, label):
+        logger.info('Creating snapshot %s', self.name)
+
+        subprocess.check_call([
+            ZFS, 'snapshot', '-o', 'zol:zfs-snap:label=%s' %
+                label, self.name])
+
+    def destroy(self):
+        logger.info('Destroying snapshot %s', self.name)
+        subprocess.check_call([ZFS, 'destroy', self.name])
+
+    @property
+    def fs(self):
+        fs_name, _ = self.name.split('@')
+        return ZFSFs(fs_name)
+
+    @property
+    def datetime(self):
+        _, name = self.name.split('@')
+        name = re.sub(r'Z$', '+0000', name)
+        return datetime.strptime(name, 'zfs-snap_%Y%m%dT%H%M%S%z')
+
+
+class ZFSFs(object):
+    def __init__(self, name):
+        self.name = name
+        self._avail = None
+        self._used = None
+        self._properties = dict()
+
+    def snapshots_enabled(self, label):
+        properties = self.get_properties()
+        snapshots_enabled = True
+
+        if 'zol:zfs-snap:%s' % label in properties:
+            value = properties['zol:zfs-snap:%s' % label].lower()
+
+            if value == 'on':
+                snapshots_enabled = True
+            elif value == 'off':
+                snapshots_enabled = False
+        elif 'zol:zfs-snap' in properties:
+            value = properties['zol:zfs-snap'].lower()
+
+            if value == 'on':
+                snapshots_enabled = True
+            elif value == 'off':
+                snapshots_enabled = False
+
+        return snapshots_enabled
+
+    def get_keep(self, label):
+        properties = self.get_properties()
+        keep = None
+
+        if 'zol:zfs-snap:%s:keep' % label in properties:
+            keep = properties['zol:zfs-snap:%s:keep' % label]
+        elif 'zol:zfs-snap:keep' in properties:
+            keep = properties['zol:zfs-snap:keep' % label]
+
+        return keep
+
+    def _autoconvert(self, value):
+        for fn in [int]:
+            try:
+                return fn(value)
+            except ValueError:
+                pass
+
+        if value == 'none':
+            value = None
+
+        return value
+
+    def get_properties(self):
+        if not self._properties:
+            cmd = [ZFS, 'get', 'all', '-H', '-p', '-o', 'property,value',
+                   self.name]
+            output = subprocess.check_output(cmd)
+            properties = dict()
+
+            for line in output.decode('utf8').split('\n'):
+                if line.strip():
+                    zfs_property, value = line.split('\t')
+                    properties[zfs_property] = self._autoconvert(value)
+
+            self._properties = properties
+
+        return self._properties
+
+    @property
+    def percent_free(self):
+        available = self.get_properties()['available']
+        used = self.get_properties()['used']
+        return (available / (available + used) * 100)
+
+    def get_snapshots(self, label):
+        output = subprocess.check_output([
+            ZFS, 'list', '-H', '-o', 'name,zol:zfs-snap:label', '-d 1', '-t',
+            'snapshot', self.name
+        ])
+
+        for line in output.decode('utf8').split('\n'):
+            line = line.strip()
+
+            if line:
+                name, snapshot_label = line.split('\t')
+
+                if snapshot_label == label:
+                    yield ZFSSnapshot(name)
+
+    def create_snapshot(self, label, min_free, min_keep):
+        if not self.snapshots_enabled(label):
+            return None
+
+        if self.percent_free < min_free:
+            logger.warning('There is only %s%% free space on %s '
+                           '[min-free: %s%%]. Trying to delete old '
+                           'snapshots to free space.',
+                           round(self.percent_free, 1), self.name, min_free)
+
+            while self.percent_free < min_free:
+                if not self.destroy_old_snapshots(label, min_keep, limit=1):
+                    logger.error('Could not free enough space. Aborting.')
+                    return None
+
+        timestamp = datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+        name = '%s@zfs-snap_%s' % (self.name, timestamp)
+        s = ZFSSnapshot(name)
+        s.create(label)
+
+        return s
+
+    def destroy_old_snapshots(self, label, keep, limit=None):
+        if self.snapshots_enabled(label):
+            final_keep = keep
+        else:
+            final_keep = 0
+
+        snapshots = sorted(self.get_snapshots(label),
+                           key=attrgetter('datetime'),
+                           reverse=True)[final_keep:]
+        destroyed_snapshots = list()
+
+        for snapshot in sorted(snapshots, key=attrgetter('datetime'),
+                               reverse=False):
+            if limit and len(destroyed_snapshots) >= limit:
+                break
+
+            snapshot.destroy()
+            destroyed_snapshots.append(snapshot)
+
+        return destroyed_snapshots
+
+
 class ZFSSnap(object):
-    def __init__(self, label, keep, force):
+    def __init__(self, label):
         self.label = label
-        self.keep = keep
-        self.force = force
-        self.zfs = '/sbin/zfs'
 
     def __enter__(self):
         return self
@@ -26,151 +188,39 @@ class ZFSSnap(object):
             logger.error(exc_value)
 
     def _get_all_fs(self, file_system=None):
-        zfs_fs_cmd = [
-            self.zfs, 'list', '-H', '-p',
-            '-o', 'name,used,avail,zol:zfs-snap,zol:zfs-snap:%s,'
-                  'zol:zfs-snap:keep,zol:zfs-snap:%s:keep' %
-                      (self.label, self.label),
-            '-t', 'filesystem'
-        ]
+        cmd = [ZFS, 'list', '-H', '-p', '-o', 'name', '-t', 'filesystem']
 
         if file_system:
-            zfs_fs_cmd.append(file_system)
+            cmd.append(file_system)
 
-        output = subprocess.check_output(zfs_fs_cmd)
+        output = subprocess.check_output(cmd)
 
-        for line in output.decode('utf8').split('\n'):
-            line = line.strip()
+        for name in output.decode('utf8').split('\n'):
+            name = name.strip()
 
-            if line:
-                zfs_values = line.split('\t')
-                zfs_info = dict()
-                zfs_info['name'] = zfs_values[0]
-                zfs_info['used'] = int(zfs_values[1])
-                zfs_info['avail'] = int(zfs_values[2])
-                zfs_info['fs_enable'] = zfs_values[3]
-                zfs_info['label_enable'] = zfs_values[4]
-                zfs_info['fs_keep'] = zfs_values[5]
-                zfs_info['label_keep'] = zfs_values[6]
+            if name:
+                yield ZFSFs(name)
 
-                # The label property toggling snapshots have priority over
-                # the global file system property if they are different.
-                if zfs_info['label_enable'].lower() == 'true':
-                    enable_snapshots = True
-                elif zfs_info['label_enable'].lower() == 'false':
-                    enable_snapshots = False
-                elif zfs_info['fs_enable'].lower() == 'true':
-                    enable_snapshots = True
-                elif zfs_info['fs_enable'].lower() == 'false':
-                    enable_snapshots = False
-                else:
-                    enable_snapshots = True
-
-                # Use the keep value given by command line, unless overriden
-                # either globally or per label by ZFS properties.
-                # Per label is prioritized over the global setting. If --force
-                # is given by command line the command line value will be used.
-                if self.force:
-                    keep = self.keep
-                elif zfs_info['label_keep'] != '-':
-                    keep = zfs_info['label_keep']
-                elif zfs_info['fs_keep'] != '-':
-                    keep = zfs_info['fs_keep']
-                else:
-                    keep = self.keep
-
-                percent_free = (zfs_info['avail'] /
-                                (zfs_info['avail'] + zfs_info['used']) * 100)
-
-                yield {
-                    'name': zfs_info['name'],
-                    'percent_free': percent_free,
-                    'enable_snapshots': enable_snapshots,
-                    'keep': int(keep),
-                }
-
-    def _get_all_snapshots(self):
-        output = subprocess.check_output([
-            self.zfs, 'list', '-H',
-            '-o', 'name,zol:zfs-snap:label', '-t', 'snapshot'
-        ])
-
-        for line in output.decode('utf8').split('\n'):
-            line = line.strip()
-
-            if line:
-                name, label = line.split('\t')
-                fs, _ = name.split('@')
-
-                if label == self.label:
-                    yield {
-                        'name': name,
-                        'fs': fs
-                    }
-
-    def _create_snapshot(self, fs):
-        timestamp = datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
-        name = '%s@zfs-snap_%s' % (fs, timestamp)
-        logger.info('Creating snapshot %s', name)
-
-        subprocess.check_call([
-            self.zfs, 'snapshot', '-o', 'zol:zfs-snap:label=%s' %
-                self.label, name])
-
-    def create_snapshots(self, min_free, min_keep, file_system=None):
+    def run(self, keep, min_free, min_keep, file_system=None, force=None):
         for fs in self._get_all_fs(file_system):
-            if not fs['enable_snapshots']:
-                continue
+            # Use the keep value given by command line, unless overriden
+            # either globally or per label by ZFS properties.
+            # Per label is prioritized over the global setting. If --force
+            # is given by command line the command line value will be used,
+            # regardless of ZFS properties
+            fs_keep = fs.get_keep(self.label)
 
-            if fs['keep'] < 1:
-                continue
-
-            create_snapshot=True
-
-            if fs['percent_free'] < min_free:
-                logger.warning('There is only %s%% free space on %s '
-                               '[min-free: %s%%]. Trying to delete old '
-                               'snapshots to free space.',
-                               round(fs['percent_free'], 1), fs['name'],
-                               min_free)
-
-                while fs['percent_free'] < min_free:
-                    if not self._destroy_oldest_snapshot(fs['name'], min_keep):
-                        logger.error('Could not free enough space. Aborting.')
-                        create_snapshot=False
-                        break
-
-            if create_snapshot:
-                self._create_snapshot(fs['name'])
-
-    def _destroy_snapshot(self, name):
-        logger.info('Destroying snapshot %s', name)
-        subprocess.check_call([self.zfs, 'destroy', name])
-
-    def _destroy_oldest_snapshot(self, fs, min_keep):
-        snapshots = sorted([s['name'] for s in self._get_all_snapshots()
-                           if s['fs'] == fs], reverse=True)[min_keep:]
-
-        if not snapshots:
-            return False
-
-        # Return after the first element
-        for snapshot in sorted(snapshots, reverse=False):
-            self._destroy_snapshot(snapshot)
-            return True
-
-    def destroy_old_snapshots(self, file_system=None):
-        for fs in self._get_all_fs(file_system):
-            if not fs['enable_snapshots']:
-                keep = 0
+            if force:
+                final_keep = keep
+            elif fs_keep:
+                final_keep = fs_keep
             else:
-                keep = fs['keep']
+                final_keep = keep
 
-            snapshots = [s['name'] for s in self._get_all_snapshots()
-                            if s['fs'] == fs['name']]
+            if keep > 0:
+                fs.create_snapshot(self.label, min_free, min_keep)
 
-            for snapshot in sorted(snapshots, reverse=True)[keep:]:
-                self._destroy_snapshot(snapshot)
+            fs.destroy_old_snapshots(self.label, final_keep)
 
 
 def main():
@@ -215,9 +265,9 @@ def main():
         logger.addHandler(ch)
 
     try:
-        with ZFSSnap(args.label, args.keep, args.force) as z:
-            z.create_snapshots(args.min_free, args.min_keep, args.file_system)
-            z.destroy_old_snapshots(args.file_system)
+        with ZFSSnap(args.label) as z:
+            z.run(args.keep, args.min_free, args.min_keep, args.file_system,
+                  args.force)
     except KeyboardInterrupt:
         sys.exit(2)
 

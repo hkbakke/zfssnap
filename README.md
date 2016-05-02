@@ -20,12 +20,12 @@ be freed.
 
 ## ZFS properties used
 * `zol:zfs-snap:label=[str]`: Identifies the label of the snapshot.
-* `zol:zfs-snap=[true|false]`: Toggle snapshots for all labels on a file
+* `zol:zfs-snap=[on|off]`: Toggle snapshots for all labels on a file
   system. Equals `true` if not set.
   Note that disabling snapshots for a file system using properties will 
   automatically delete all existing snapshots on the next run for that label 
   or file system.
-* `zol:zfs-snap:<label>=[true|false]`: Toggle snapshots for a specific label.
+* `zol:zfs-snap:<label>=[on|off]`: Toggle snapshots for a specific label.
   Equals `true` if not set. Overrides the global property.
 * `zol:zfs-snap:keep=[int]`: Override the `keep` value for a file system.
   This overrides `--keep` given on the command line for that file system.
