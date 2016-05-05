@@ -47,27 +47,6 @@ class ZFSFs(object):
         self.name = name
         self._properties = dict()
 
-    def snapshots_enabled(self, label):
-        properties = self.get_properties()
-        snapshots_enabled = True
-
-        if 'zol:zfs-snap:%s' % label in properties:
-            value = properties['zol:zfs-snap:%s' % label].lower()
-
-            if value == 'on':
-                snapshots_enabled = True
-            elif value == 'off':
-                snapshots_enabled = False
-        elif 'zol:zfs-snap' in properties:
-            value = properties['zol:zfs-snap'].lower()
-
-            if value == 'on':
-                snapshots_enabled = True
-            elif value == 'off':
-                snapshots_enabled = False
-
-        return snapshots_enabled
-
     def _autoconvert(self, value):
         for fn in [int]:
             try:
@@ -100,6 +79,18 @@ class ZFSFs(object):
                 enabled = False
 
         return enabled
+
+    def get_keep(self, label):
+        properties = self.get_properties()
+
+        if 'zol:zfs-snap:%s:keep' % label in properties:
+            keep = properties['zol:zfs-snap:%s:keep' % label]
+        elif 'zol:zfs-snap:keep' in properties:
+            keep = properties['zol:zfs-snap:keep' % label]
+        else:
+            keep = None
+
+        return keep
 
     def get_properties(self):
         if not self._properties:
@@ -199,7 +190,7 @@ class ZFSSnap(object):
             if name:
                 yield ZFSFs(name)
 
-    def get_keep(self, fs, keep, force):
+    def _get_keep(self, fs, keep, force):
         properties = fs.get_properties()
 
         # Use the keep value given by command line, unless overriden
@@ -207,12 +198,12 @@ class ZFSSnap(object):
         # Per label is prioritized over the global setting. If --force
         # is given by command line the command line value will be used,
         # regardless of ZFS properties
+        fs_keep = fs.get_keep(self.label)
+
         if force:
             runtime_keep = keep
-        elif 'zol:zfs-snap:%s:keep' % self.label in properties:
-            runtime_keep = properties['zol:zfs-snap:%s:keep' % self.label]
-        elif 'zol:zfs-snap:keep' in properties:
-            runtime_keep = properties['zol:zfs-snap:keep' % self.label]
+        elif fs_keep:
+            runtime_keep = fs_keep
         else:
             runtime_keep = keep
 
@@ -220,7 +211,7 @@ class ZFSSnap(object):
 
     def run(self, keep, min_free, min_keep, file_system=None, force=None):
         for fs in self._get_all_fs(file_system):
-            runtime_keep = self.get_keep(fs, keep, force)
+            runtime_keep = self._get_keep(fs, keep, force)
 
             if fs.snapshots_enabled(self.label):
                 if runtime_keep > 0:
