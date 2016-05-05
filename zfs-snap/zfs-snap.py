@@ -80,6 +80,27 @@ class ZFSFs(object):
 
         return value
 
+    def snapshots_enabled(self, label):
+        properties = self.get_properties()
+        enabled = True
+
+        if 'zol:zfs-snap:%s' % label in properties:
+            value = properties['zol:zfs-snap:%s' % label].lower()
+
+            if value == 'on':
+                enabled = True
+            elif value == 'off':
+                enabled = False
+        elif 'zol:zfs-snap' in properties:
+            value = properties['zol:zfs-snap'].lower()
+
+            if value == 'on':
+                enabled = True
+            elif value == 'off':
+                enabled = False
+
+        return enabled
+
     def get_properties(self):
         if not self._properties:
             cmd = [ZFS, 'get', 'all', '-H', '-p', '-o', 'property,value',
@@ -178,27 +199,6 @@ class ZFSSnap(object):
             if name:
                 yield ZFSFs(name)
 
-    def snapshots_enabled(self, fs):
-        properties = fs.get_properties()
-        enabled = True
-
-        if 'zol:zfs-snap:%s' % self.label in properties:
-            value = properties['zol:zfs-snap:%s' % self.label].lower()
-
-            if value == 'on':
-                enabled = True
-            elif value == 'off':
-                enabled = False
-        elif 'zol:zfs-snap' in properties:
-            value = properties['zol:zfs-snap'].lower()
-
-            if value == 'on':
-                enabled = True
-            elif value == 'off':
-                enabled = False
-
-        return enabled
-
     def get_keep(self, fs, keep, force):
         properties = fs.get_properties()
 
@@ -222,7 +222,7 @@ class ZFSSnap(object):
         for fs in self._get_all_fs(file_system):
             runtime_keep = self.get_keep(fs, keep, force)
 
-            if self.snapshots_enabled(fs):
+            if fs.snapshots_enabled(self.label):
                 if runtime_keep > 0:
                     fs.create_snapshot(self.label, min_free, min_keep)
             else:
