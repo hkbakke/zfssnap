@@ -45,8 +45,6 @@ class ZFSSnapshot(object):
 class ZFSFs(object):
     def __init__(self, name):
         self.name = name
-        self._avail = None
-        self._used = None
         self._properties = dict()
 
     def snapshots_enabled(self, label):
@@ -69,17 +67,6 @@ class ZFSFs(object):
                 snapshots_enabled = False
 
         return snapshots_enabled
-
-    def get_keep(self, label):
-        properties = self.get_properties()
-        keep = None
-
-        if 'zol:zfs-snap:%s:keep' % label in properties:
-            keep = properties['zol:zfs-snap:%s:keep' % label]
-        elif 'zol:zfs-snap:keep' in properties:
-            keep = properties['zol:zfs-snap:keep' % label]
-
-        return keep
 
     def _autoconvert(self, value):
         for fn in [int]:
@@ -122,18 +109,13 @@ class ZFSFs(object):
         ])
 
         for line in output.decode('utf8').split('\n'):
-            line = line.strip()
-
-            if line:
+            if line.strip():
                 name, snapshot_label = line.split('\t')
 
                 if snapshot_label == label:
                     yield ZFSSnapshot(name)
 
     def create_snapshot(self, label, min_free, min_keep):
-        if not self.snapshots_enabled(label):
-            return None
-
         if self.percent_free < min_free:
             logger.warning('There is only %s%% free space on %s '
                            '[min-free: %s%%]. Trying to delete old '
@@ -153,14 +135,9 @@ class ZFSFs(object):
         return s
 
     def destroy_old_snapshots(self, label, keep, limit=None):
-        if self.snapshots_enabled(label):
-            final_keep = keep
-        else:
-            final_keep = 0
-
         snapshots = sorted(self.get_snapshots(label),
                            key=attrgetter('datetime'),
-                           reverse=True)[final_keep:]
+                           reverse=True)[keep:]
         destroyed_snapshots = list()
 
         for snapshot in sorted(snapshots, key=attrgetter('datetime'),
@@ -201,26 +178,58 @@ class ZFSSnap(object):
             if name:
                 yield ZFSFs(name)
 
+    def snapshots_enabled(self, fs):
+        properties = fs.get_properties()
+        enabled = True
+
+        if 'zol:zfs-snap:%s' % self.label in properties:
+            value = properties['zol:zfs-snap:%s' % self.label].lower()
+
+            if value == 'on':
+                enabled = True
+            elif value == 'off':
+                enabled = False
+        elif 'zol:zfs-snap' in properties:
+            value = properties['zol:zfs-snap'].lower()
+
+            if value == 'on':
+                enabled = True
+            elif value == 'off':
+                enabled = False
+
+        return enabled
+
+    def get_keep(self, fs, keep, force):
+        properties = fs.get_properties()
+
+        # Use the keep value given by command line, unless overriden
+        # either globally or per label by ZFS properties.
+        # Per label is prioritized over the global setting. If --force
+        # is given by command line the command line value will be used,
+        # regardless of ZFS properties
+        if force:
+            runtime_keep = keep
+        elif 'zol:zfs-snap:%s:keep' % self.label in properties:
+            runtime_keep = properties['zol:zfs-snap:%s:keep' % self.label]
+        elif 'zol:zfs-snap:keep' in properties:
+            runtime_keep = properties['zol:zfs-snap:keep' % self.label]
+        else:
+            runtime_keep = keep
+
+        return runtime_keep
+
     def run(self, keep, min_free, min_keep, file_system=None, force=None):
         for fs in self._get_all_fs(file_system):
-            # Use the keep value given by command line, unless overriden
-            # either globally or per label by ZFS properties.
-            # Per label is prioritized over the global setting. If --force
-            # is given by command line the command line value will be used,
-            # regardless of ZFS properties
-            fs_keep = fs.get_keep(self.label)
+            runtime_keep = self.get_keep(fs, keep, force)
 
-            if force:
-                final_keep = keep
-            elif fs_keep:
-                final_keep = fs_keep
+            if self.snapshots_enabled(fs):
+                if runtime_keep > 0:
+                    fs.create_snapshot(self.label, min_free, min_keep)
             else:
-                final_keep = keep
+                # Ensure no snapshots are kept if snapshots are disabled
+                runtime_keep = 0
 
-            if keep > 0:
-                fs.create_snapshot(self.label, min_free, min_keep)
-
-            fs.destroy_old_snapshots(self.label, final_keep)
+            fs.destroy_old_snapshots(self.label, runtime_keep)
 
 
 def main():
