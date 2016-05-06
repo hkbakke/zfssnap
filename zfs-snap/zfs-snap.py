@@ -9,9 +9,8 @@ from datetime import datetime
 from operator import attrgetter
 
 
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
-
+LOGGER = logging.getLogger()
+LOGGER.setLevel(logging.DEBUG)
 ZFS = '/sbin/zfs'
 
 
@@ -20,20 +19,14 @@ class ZFSSnapshot(object):
         self.name = name
 
     def create(self, label):
-        logger.info('Creating snapshot %s', self.name)
+        LOGGER.info('Creating snapshot %s', self.name)
 
-        subprocess.check_call([
-            ZFS, 'snapshot', '-o', 'zol:zfs-snap:label=%s' %
-                label, self.name])
+        subprocess.check_call([ZFS, 'snapshot', '-o',
+                               'zol:zfs-snap:label=%s' % label, self.name])
 
     def destroy(self):
-        logger.info('Destroying snapshot %s', self.name)
+        LOGGER.info('Destroying snapshot %s', self.name)
         subprocess.check_call([ZFS, 'destroy', self.name])
-
-    @property
-    def fs(self):
-        fs_name, _ = self.name.split('@')
-        return ZFSFs(fs_name)
 
     @property
     def datetime(self):
@@ -42,20 +35,18 @@ class ZFSSnapshot(object):
         return datetime.strptime(name, 'zfs-snap_%Y%m%dT%H%M%S%z')
 
 
-class ZFSFs(object):
+class ZFSFileSystem(object):
     def __init__(self, name):
         self.name = name
         self._properties = dict()
 
-    def _autoconvert(self, value):
+    @staticmethod
+    def _autoconvert(value):
         for fn in [int]:
             try:
                 return fn(value)
             except ValueError:
                 pass
-
-        if value == 'none':
-            value = None
 
         return value
 
@@ -112,7 +103,7 @@ class ZFSFs(object):
     def percent_free(self):
         available = self.get_properties()['available']
         used = self.get_properties()['used']
-        return (available / (available + used) * 100)
+        return available / (available + used) * 100
 
     def get_snapshots(self, label):
         output = subprocess.check_output([
@@ -129,14 +120,14 @@ class ZFSFs(object):
 
     def create_snapshot(self, label, min_free, min_keep):
         if self.percent_free < min_free:
-            logger.warning('There is only %s%% free space on %s '
+            LOGGER.warning('There is only %s%% free space on %s '
                            '[min-free: %s%%]. Trying to delete old '
                            'snapshots to free space.',
                            round(self.percent_free, 1), self.name, min_free)
 
             while self.percent_free < min_free:
                 if not self.destroy_old_snapshots(label, min_keep, limit=1):
-                    logger.error('Could not free enough space. Aborting.')
+                    LOGGER.error('Could not free enough space. Aborting.')
                     return None
 
         timestamp = datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
@@ -172,11 +163,12 @@ class ZFSSnap(object):
 
     def __exit__(self, exc_type, exc_value, traceback):
         if exc_type is KeyboardInterrupt:
-            logger.error('zfs-snap aborted!')
+            LOGGER.error('zfs-snap aborted!')
         elif exc_type is not None:
-            logger.error(exc_value)
+            LOGGER.error(exc_value)
 
-    def _get_all_fs(self, file_system=None):
+    @staticmethod
+    def get_all_fs(file_system=None):
         cmd = [ZFS, 'list', '-H', '-p', '-o', 'name', '-t', 'filesystem']
 
         if file_system:
@@ -188,11 +180,9 @@ class ZFSSnap(object):
             name = name.strip()
 
             if name:
-                yield ZFSFs(name)
+                yield ZFSFileSystem(name)
 
     def _get_keep(self, fs, keep, force):
-        properties = fs.get_properties()
-
         # Use the keep value given by command line, unless overriden
         # either globally or per label by ZFS properties.
         # Per label is prioritized over the global setting. If --force
@@ -210,7 +200,7 @@ class ZFSSnap(object):
         return runtime_keep
 
     def run(self, keep, min_free, min_keep, file_system=None, force=None):
-        for fs in self._get_all_fs(file_system):
+        for fs in self.get_all_fs(file_system):
             runtime_keep = self._get_keep(fs, keep, force)
 
             if fs.snapshots_enabled(self.label):
@@ -262,7 +252,7 @@ def main():
         ch = logging.StreamHandler()
         ch.setLevel(args.verbosity)
         ch.setFormatter(fmt)
-        logger.addHandler(ch)
+        LOGGER.addHandler(ch)
 
     try:
         with ZFSSnap(args.label) as z:
