@@ -119,6 +119,9 @@ class ZFSFileSystem(object):
                     yield ZFSSnapshot(name)
 
     def create_snapshot(self, label, min_free, min_keep):
+        if not self.snapshots_enabled(label):
+            return None
+
         if self.percent_free < min_free:
             LOGGER.warning('There is only %s%% free space on %s '
                            '[min-free: %s%%]. Trying to delete old '
@@ -138,6 +141,10 @@ class ZFSFileSystem(object):
         return s
 
     def destroy_old_snapshots(self, label, keep, limit=None):
+        # Delete all snapshots if snapshots are disabled
+        if not self.snapshots_enabled(label):
+            keep = 0
+
         snapshots = sorted(self.get_snapshots(label),
                            key=attrgetter('datetime'),
                            reverse=True)[keep:]
@@ -203,12 +210,8 @@ class ZFSSnap(object):
         for fs in self.get_all_fs(file_system):
             runtime_keep = self._get_keep(fs, keep, force)
 
-            if fs.snapshots_enabled(self.label):
-                if runtime_keep > 0:
-                    fs.create_snapshot(self.label, min_free, min_keep)
-            else:
-                # Ensure no snapshots are kept if snapshots are disabled
-                runtime_keep = 0
+            if runtime_keep > 0:
+                fs.create_snapshot(self.label, min_free, min_keep)
 
             fs.destroy_old_snapshots(self.label, runtime_keep)
 
