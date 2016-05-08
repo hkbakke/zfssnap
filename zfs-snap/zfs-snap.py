@@ -83,8 +83,8 @@ class ZFSFileSystem(object):
 
         return keep
 
-    def get_properties(self):
-        if not self._properties:
+    def get_properties(self, refresh=False):
+        if refresh or not self._properties:
             cmd = [ZFS, 'get', 'all', '-H', '-p', '-o', 'property,value',
                    self.name]
             output = subprocess.check_output(cmd)
@@ -101,9 +101,11 @@ class ZFSFileSystem(object):
 
     @property
     def percent_free(self):
-        available = self.get_properties()['available']
-        used = self.get_properties()['used']
-        return available / (available + used) * 100
+        properties = self.get_properties(refresh=True)
+
+        return (properties['available']
+                / (properties['available'] + properties['used'])
+                * 100)
 
     def get_snapshots(self, label):
         output = subprocess.check_output([
