@@ -52,24 +52,18 @@ class ZFSFileSystem(object):
 
     def snapshots_enabled(self, label):
         properties = self.get_properties()
-        enabled = True
 
         if 'zol:zfs-snap:%s' % label in properties:
-            value = properties['zol:zfs-snap:%s' % label].lower()
-
-            if value == 'on':
-                enabled = True
-            elif value == 'off':
-                enabled = False
+            value = properties['zol:zfs-snap:%s' % label]
         elif 'zol:zfs-snap' in properties:
-            value = properties['zol:zfs-snap'].lower()
+            value = properties['zol:zfs-snap']
+        else:
+            value = 'on'
 
-            if value == 'on':
-                enabled = True
-            elif value == 'off':
-                enabled = False
+        if value.lower() == 'off':
+            return False
 
-        return enabled
+        return True
 
     def get_keep(self, label):
         properties = self.get_properties()
@@ -186,9 +180,7 @@ class ZFSSnap(object):
         output = subprocess.check_output(cmd)
 
         for name in output.decode('utf8').split('\n'):
-            name = name.strip()
-
-            if name:
+            if name.strip():
                 yield ZFSFileSystem(name)
 
     def _get_keep(self, fs, keep, force):
