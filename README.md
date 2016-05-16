@@ -1,82 +1,94 @@
-# zfs-snap
-zfs-snap is a python script that automates the task of creating snapshots
+# zfssnap
+zfssnap is a python script that automates the task of creating snapshots
 for ZFS on Linux systems. By default it will snapshot all ZFS filesystems on
 the host, but this can be overriden either globally per file system or per 
-label via ZFS properties. 
+label via ZFS properties.
 The same goes for `keep` values which also can be overriden per
 label. The properties are subject to the same inheritance rules as other
 ZFS properties.
+
+zfssnap doesn't really care if the file system is local or accessed via SSH,
+so it may also be used to handle snapshots and replication on remote servers
+without installing zfssnap on the remote servers, but especially replication 
+performance may suffer.
 
 As ZFS properties are used to identify the snapshot label the snapshot names
 are compatible with the shadow_copy2 module in Samba for use with
 Previous Versions.
 
-zfs-snap also supports using free space on the file system as a trigger to
-delete old snapshots or abort the snapshot altogether if not enough space can
-be freed.
-
 ## Requirements
 * Only tested on Python v3.4 on Debian Jessie.
 
 ## ZFS properties used
-* `zol:zfs-snap:label=[str]`: Identifies the label of the snapshot.
-* `zol:zfs-snap=[on|off]`: Toggle snapshots for all labels on a file
-  system. Equals `true` if not set.
-  Note that disabling snapshots for a file system using properties will 
-  automatically delete all existing snapshots on the next run for that label 
-  or file system.
-* `zol:zfs-snap:<label>=[on|off]`: Toggle snapshots for a specific label.
-  Equals `true` if not set. Overrides the global property.
-* `zol:zfs-snap:keep=[int]`: Override the `keep` value for a file system.
+* `zol:zfssnap:label=[str]`: Identifies the label of the snapshot.
+* `zol:zfssnap=[on|off]`: Toggle snapshots for all labels on a file
+  system. If not set snapshots are enabled unless disabled per label.
+* `zol:zfssnap:<label>=[on|off]`: Toggle snapshots for a specific label.
+  Overrides the global property. If not set snapshots are enabled unless
+  globally disabled for the file system.
+* `zol:zfssnap:keep=[int]`: Override the `keep` value for a file system.
   This overrides `--keep` given on the command line for that file system.
-  May be overridden by command line by specifying the `--force` option.
-* `zol:zfs-snap:<label>:keep=[int]`: Override the `keep` value for a label.
+* `zol:zfssnap:<label>:keep=[int]`: Override the `keep` value for a label.
   This overrides the global property and the value given on the command line.
-  May be overridden by command line by specifying the `--force` option.
 
 ## Usage
 Create a snapshot of all ZFS file systems labeled `hourly`. Keep no more than 24
-snapshots by deleting the oldest ones.
+snapshots by deleting the oldest ones:
 
-    ./zfs-snap.py --label hourly --keep 24
-Delete all snapshots for a label on a selected file system.
+    ./zfssnap.py snapshot --label hourly --keep 24
+...which is the same as:
 
-    ./zfs-snap.py --label monthly --keep 0 --file-system zpool1/dev
-Override `keep` value set in ZFS property. Typically useful if you want
-to delete some snapshots without having to change the properties.
+    ./zfssnap.py snapshot --label hourly --keep 24 --file-systems _all
+Or alternatively if you want to do the same on some remote server:
 
-    ./zfs-snap.py --label frequent --keep 1 --force
+    ./zfssnap.py snapshot --label hourly --keep 24 --file-systems user@remoteserver:_all
+Give a list of file systems to snapshot:
 
-Keep the last 1000 daily snapshots, but if there is less than 25% free space,
-start to delete old snapshots until the min-free threshold is reached, but
-always keep at least 3 snapshots. If there is not enough free space after all
-but 3 snapshots have been destroyed, zfs-snap will abort without creating a new
-snapshot.
+    ./zfssnap.py snapshot --label hourly --keep 24 --file-systems user@remoteserver:prod/vms zpool/files root@server2:pool/stuff
+Delete all snapshots for a label on a selected file system:
 
-    ./zfs-snap.py --label daily --keep 1000 --min-free 25 --min-keep 3
-List all options:
+    ./zfssnap.py snapshot --label monthly --keep 0 --file-systems zpool1/dev
+Replicate local file system to another local dataset:
 
-    ./zfs-snap.py --help
+    ./zfssnap.py replicate --label replicated --keep 1 --src-file-system pool1/dataset1 --dst-file-system pool2/dataset2
+Replicate a local file system to remote dataset using ssh:
+
+    ./zfssnap.py replicate --label replicated --keep 1 --src-file-system pool1/dataset1 --dst-file-system user@remoteserver:pool2/dataset2
+Replicate remote file system to a local dataset:
+
+    ./zfssnap.py replicate --label replicated --keep 1 --src-file-system user@remoteserver:pool1/dataset1 --dst-file-system pool2/dataset2
+You may even replicate a remote file system to a remote dataset if you want.
+In other words you may use zfssnap to remotely handle snapshots and replication
+on other ZFS servers.
+
+The following syntaxes are valid when specifiying a file system:
+
+    1. ssh_user@ssh_server:filesystem
+    2. filesystem
+
+You need to take care of the key distribution for passwordless logins by normal
+ssh mechanisms before the ssh options can be used.
+
+List all options
+
+    ./zfssnap.py --help
+Get help for sub-command
+
+    ./zfssnap.py replicate --help
 
 ## Schedule snapshots
 To schedule snapshots crontab are normally used. This is an example root
 crontab for this purpose:
 
-    */15 *      *  *  *   /usr/sbin/zfs-snap --label frequent --keep 4 --verbosity WARNING
-    8    */1    *  *  *   /usr/sbin/zfs-snap --label hourly --keep 24 --verbosity WARNING
-    16   0      *  *  *   /usr/sbin/zfs-snap --label daily --keep 31 --verbosity WARNING
+    */15 *      *  *  *   /usr/sbin/zfssnap --verbosity WARNING snapshot --label frequent --keep 4
+    8    */1    *  *  *   /usr/sbin/zfssnap --verbosity WARNING snapshot --label hourly --keep 24
+    16   0      *  *  *   /usr/sbin/zfssnap --verbosity WARNING snapshot --label daily --keep 31
+    */5  *      *  *  *   /usr/sbin/zfssnap --verbosity WARNING replicate --label replicated --keep 1 --src-file-system prod/vms --dst-file-system root@backupserver:backup/vms
 
-* `zfs-snap.py` has been symlinked to `/usr/sbin/zfs-snap` for ease of use.
+* `zfssnap.py` has been symlinked to `/usr/sbin/zfssnap` for ease of use.
 * `--quiet` can be used to supress all output, even warnings and errors.
   However, you are normally interested in getting a notification from cron if 
   something goes wrong.
-* Make sure the snapshot jobs are not triggered at exactly the same time 
-  (normally by using the same minute). The time resolution of the snapshot 
-  naming are 1 second, but you may still have name collisions when the cron 
-  jobs are triggered at the same time, as the label are not included in the 
-  snapshot name to be compatible with Previous Versions. 
-  Nothing bad happens, though. The script just exits with an error and you get
-  no snapshots that run.
 
 ## Samba configuration for Previous Version
 The .zfs directory can remain hidden.
@@ -84,19 +96,22 @@ The .zfs directory can remain hidden.
     [global]
     shadow: snapdir = .zfs/snapshot
     shadow: sort = desc
-    shadow: format = zfs-snap_%Y%m%dT%H%M%SZ
+    shadow: format = zfssnap_%Y%m%dT%H%M%SZ
     shadow: localtime = no
 
     [<some share>]
     vfs_objects = shadow_copy2
 
 ## Example usage of ZFS properties
-List snapshots with zfs-snap labels
+List snapshots with zfssnap labels
 
-    zfs list -o name,zol:zfs-snap:label -t snapshot
+    zfs list -o name,zol:zfssnap:label -t snapshot
 Disable snapshots for a label on a dataset
 
-    zfs set zol:zfs-snap:monthly=false zpool1/temp
+    zfs set zol:zfssnap:monthly=false zpool1/temp
 Override `keep` value for label on dataset
 
-    zfs set zol:zfs-snap:daily:keep=62 zpool1/www
+    zfs set zol:zfssnap:daily:keep=62 zpool1/www
+Remove property from dataset properties
+
+    zfs inherit zol:zfssnap:daily:keep zpool1/temp
