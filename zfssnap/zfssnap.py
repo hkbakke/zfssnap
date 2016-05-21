@@ -314,9 +314,10 @@ class ZFSSnap(object):
         if lockfile is None:
             lockfile = '/run/lock/zfssnap.lock'
 
+        self._lock_f = open(lockfile, 'w')
+
         while True:
             try:
-                self._lock_f = open(lockfile, 'w')
                 fcntl.lockf(self._lock_f, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 self.logger.debug('Lock aquired.')
                 return
