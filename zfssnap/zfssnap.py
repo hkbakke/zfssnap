@@ -73,6 +73,14 @@ class ZFSFileSystem(object):
 
         return value
 
+    @property
+    def location(self):
+        if self.host.ssh_user and self.host.ssh_host:
+            return '%s@%s:%s' % (self.host.ssh_user, self.host.ssh_host,
+                                 self.name)
+        else:
+            return self.name
+
     def snapshots_enabled(self, label):
         properties = self.get_properties()
         value = ''
@@ -155,20 +163,30 @@ class ZFSFileSystem(object):
             '-t', 'snapshot',
             self.name
         ])
-        output = subprocess.check_output(cmd)
 
-        for line in output.decode('utf8').split('\n'):
-            if line.strip():
-                name, snapshot_label = line.split('\t')
+        try:
+            output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError as e:
+            msg = e.output.decode('utf8').strip()
 
-                if not label or snapshot_label == label:
-                    yield ZFSSnapshot(self.host, name)
+            if 'dataset does not exist' in msg:
+                output = None
+            else:
+                self.logger.error(msg)
+                raise
+
+        if output:
+            for line in output.decode('utf8').split('\n'):
+                if line.strip():
+                    name, snapshot_label = line.split('\t')
+
+                    if not label or snapshot_label == label:
+                        yield ZFSSnapshot(self.host, name)
 
     def replicate(self, snapshot, target_fs):
-        try:
-            latest_s = target_fs.get_latest_snapshot()
-        except subprocess.CalledProcessError:
-            latest_s = None
+        self.logger.info('Replicating %s to %s', self.location,
+                         target_fs.location)
+        latest_s = target_fs.get_latest_snapshot()
 
         if latest_s and self.snapshot_exists(latest_s.snapname):
             send_cmd = self.host.cmd.copy()
