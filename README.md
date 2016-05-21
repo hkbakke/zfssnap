@@ -30,6 +30,10 @@ Previous Versions.
   This overrides `--keep` given on the command line for that file system.
 * `zol:zfssnap:<label>:keep=[int]`: Override the `keep` value for a label.
   This overrides the global property and the value given on the command line.
+* By using `--default-exclude` with the snapshot command you invert the logic
+  and must explicitly enable snapshots using the ZFS properties. 
+* `--override` will always enable snapshots and use the given `--keep` value
+  regardless of the ZFS properties.
 
 ## Usage
 Create a snapshot of all ZFS file systems labeled `hourly`. Keep no more than 24
