@@ -365,7 +365,7 @@ class ZFSSnap(object):
 
         if src_fs is None:
             raise ZFSReplicationException(
-                'The source file system %s does not exist.')
+                'The source file system %s does not exist.' % src_fs_location)
 
         dst_fs_name, dst_host = self._get_fs_params(fs_location=dst_fs_location,
                                                     zfs_cmd=dst_zfs_cmd,
