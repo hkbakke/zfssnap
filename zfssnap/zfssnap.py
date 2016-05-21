@@ -261,19 +261,12 @@ class ZFSHost(object):
 
     @property
     def cmd(self):
-        if self.ssh_cmd and self.ssh_host:
-            if self.ssh_user:
-                cmd = [
-                    self.ssh_cmd,
-                    '%s@%s' % (self.ssh_user, self.ssh_host),
-                    self.zfs_cmd
-                ]
-            else:
-                cmd = [
-                    self.ssh_cmd,
-                    self.ssh_host,
-                    self.zfs_cmd
-                ]
+        if self.ssh_cmd and self.ssh_user and self.ssh_host:
+            cmd = [
+                self.ssh_cmd,
+                '%s@%s' % (self.ssh_user, self.ssh_host),
+                self.zfs_cmd
+            ]
         else:
             cmd = [self.zfs_cmd]
 
