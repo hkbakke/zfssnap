@@ -75,21 +75,22 @@ class ZFSFileSystem(object):
 
     def snapshots_enabled(self, label):
         properties = self.get_properties()
+        value = ''
 
         if 'zol:zfssnap:%s' % label in properties:
             value = properties['zol:zfssnap:%s' % label]
         elif 'zol:zfssnap' in properties:
             value = properties['zol:zfssnap']
-        else:
-            value = 'on'
 
-        if value.lower() == 'off':
+        if value.lower() == 'on':
+            return True
+        elif value.lower() == 'off':
             self.logger.debug('%s: Snapshots are disabled by ZFS properties. '
                               'Use --override to ignore the properties.',
                               self.name)
             return False
 
-        return True
+        return None
 
     def get_keep(self, label):
         properties = self.get_properties()
@@ -377,7 +378,7 @@ class ZFSSnap(object):
         src_fs.destroy_old_snapshots(label, keep)
 
     def snapshot(self, keep, label, fs_locations=None, zfs_cmd=None,
-                 ssh_cmd=None, override=False):
+                 ssh_cmd=None, override=False, default_exclude=False):
         if fs_locations is None:
             fs_locations = ['_all']
 
@@ -398,7 +399,12 @@ class ZFSSnap(object):
                 snapshots_enabled = True
                 fs_keep = keep
             else:
-                snapshots_enabled = fs.snapshots_enabled(label)
+                snapshots_enabled = not default_exclude
+                fs_snapshots_enabled = fs.snapshots_enabled(label)
+
+                if fs_snapshots_enabled is not None:
+                    snapshots_enabled = fs_snapshots_enabled
+
                 fs_keep = fs.get_keep(label)
 
                 if fs_keep is None:
@@ -448,6 +454,9 @@ def main():
         '--override', action='store_true',
         help='Ignore ZFS properties and use command line arguments')
     snapshot_parser.add_argument(
+        '--default-exclude', action='store_true',
+        help='Disable snapshots by default, unless enabled by ZFS properties')
+    snapshot_parser.add_argument(
         '--zfs-cmd', metavar='PATH',
         help='Override path to zfs executable')
     snapshot_parser.add_argument(
@@ -494,6 +503,7 @@ def main():
                     fs_locations=args.file_systems,
                     zfs_cmd=args.zfs_cmd,
                     ssh_cmd=args.ssh_cmd,
+                    default_exclude=args.default_exclude,
                     override=args.override)
             elif args.subparser == 'replicate':
                 z.replicate(
