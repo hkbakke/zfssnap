@@ -112,7 +112,7 @@ List snapshots with zfssnap labels
     zfs list -o name,zol:zfssnap:label -t snapshot
 Disable snapshots for a label on a dataset
 
-    zfs set zol:zfssnap:monthly=false zpool1/temp
+    zfs set zol:zfssnap:monthly=off zpool1/temp
 Override `keep` value for label on dataset
 
     zfs set zol:zfssnap:daily:keep=62 zpool1/www
