@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-wget --no-verbose http://archive.zfsonlinux.org/debian/pool/main/z/zfsonlinux/zfsonlinux_6_all.deb
-dpkg -i zfsonlinux_6_all.deb
-rm -f zfsonlinux_6_all.deb
+wget --no-verbose http://archive.zfsonlinux.org/debian/pool/main/z/zfsonlinux/zfsonlinux_8_all.deb
+dpkg -i zfsonlinux_8_all.deb
+rm -f zfsonlinux_8_all.deb
   
 apt-get update
 apt-get install vim python3 debian-zfs -y
