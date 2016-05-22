@@ -422,10 +422,10 @@ class ZFSSnap(object):
                 if fs_keep is None:
                     fs_keep = keep
 
-            if snapshots_enabled and fs_keep > 0:
-                fs.create_snapshot(label)
+            if snapshots_enabled:
+                if fs_keep > 0:
+                    fs.create_snapshot(label)
 
-            if override or snapshots_enabled:
                 fs.destroy_old_snapshots(label, fs_keep)
 
 
