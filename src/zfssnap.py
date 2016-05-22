@@ -27,21 +27,21 @@ class ZFSSnapshot(object):
 
     def create(self, label):
         self.logger.info('Creating snapshot %s', self.name)
-        cmd = self.host.cmd.copy()
-        cmd.extend([
+        args = [
             'snapshot',
             '-o', 'zol:zfssnap:label=%s' % label,
             self.name
-        ])
+        ]
+        cmd = self.host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
 
     def destroy(self):
         self.logger.info('Destroying snapshot %s', self.name)
-        cmd = self.host.cmd.copy()
-        cmd.extend([
+        args = [
             'destroy',
             self.name
-        ])
+        ]
+        cmd = self.host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
 
     @property
@@ -115,14 +115,14 @@ class ZFSFileSystem(object):
 
     def get_properties(self, refresh=False):
         if refresh or not self._properties:
-            cmd = self.host.cmd.copy()
-            cmd.extend([
+            args = [
                 'get', 'all',
                 '-H',
                 '-p',
                 '-o', 'property,value',
                 self.name
-            ])
+            ]
+            cmd = self.host.get_cmd('zfs', args)
             output = subprocess.check_output(cmd)
             properties = dict()
 
@@ -155,15 +155,15 @@ class ZFSFileSystem(object):
         return False
 
     def get_snapshots(self, label=None):
-        cmd = self.host.cmd.copy()
-        cmd.extend([
+        args = [
             'list',
             '-H',
             '-o', 'name,zol:zfssnap:label',
             '-d', '1',
             '-t', 'snapshot',
             self.name
-        ])
+        ]
+        cmd = self.host.get_cmd('zfs', args)
 
         try:
             output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
@@ -190,29 +190,28 @@ class ZFSFileSystem(object):
         latest_s = target_fs.get_latest_snapshot()
 
         if latest_s and self.snapshot_exists(latest_s.snapname):
-            send_cmd = self.host.cmd.copy()
-            send_cmd.extend([
+            send_args = [
                 'send',
                 '-R',
                 '-i', '@%s' % latest_s.snapname,
                 snapshot.name
-            ])
+            ]
         else:
-            send_cmd = self.host.cmd.copy()
-            send_cmd.extend([
+            send_args = [
                 'send',
                 '-R',
                 snapshot.name
-            ])
+            ]
 
-        receive_cmd = target_fs.host.cmd.copy()
-        receive_cmd.extend([
+        receive_args = [
             'receive',
             '-F',
             '-v',
             target_fs.name
-        ])
+        ]
 
+        send_cmd = self.host.get_cmd('zfs', send_args)
+        receive_cmd = target_fs.host.get_cmd('zfs', receive_args)
         self.logger.debug('Replicate cmd: \'%s | %s\'', ' '.join(send_cmd),
                           ' '.join(receive_cmd))
         send = subprocess.Popen(send_cmd, stdout=subprocess.PIPE)
@@ -265,41 +264,57 @@ class ZFSFileSystem(object):
 
 
 class ZFSHost(object):
-    def __init__(self, ssh_user=None, ssh_host=None, zfs_cmd=None,
-                 ssh_cmd=None):
-        if zfs_cmd is None:
-            zfs_cmd = '/sbin/zfs'
+    def __init__(self, ssh_user=None, ssh_host=None, cmds=None):
+        if cmds is None:
+            cmds={}
 
-        if ssh_cmd is None:
-            ssh_cmd = '/usr/bin/ssh'
-
-        self.zfs_cmd = zfs_cmd
-        self.ssh_cmd = ssh_cmd
+        self.cmds = self._validate_cmds(cmds)
         self.ssh_user = ssh_user
         self.ssh_host = ssh_host
 
-    @property
-    def cmd(self):
-        if self.ssh_cmd and self.ssh_user and self.ssh_host:
+    def _validate_cmds(self, cmds):
+        default_cmds = {
+            'zfs': '/sbin/zfs',
+            'ssh': '/usr/bin/ssh'
+        }
+
+        valid_cmds = default_cmds
+        valid_cmds.update({k: v for k, v in cmds.items() if v is not None})
+        return valid_cmds
+
+    def get_cmd(self, name, args=None):
+        cmd_path = self.cmds.get(name, None)
+
+        if cmd_path is None:
+            raise ZFSSnapException(
+                '\'%s\' does not have a path defined.' % cmd_path)
+
+        if args is None:
+            args = []
+
+        ssh_cmd = self.cmds.get('ssh', None)
+
+        if ssh_cmd and self.ssh_user and self.ssh_host:
             cmd = [
-                self.ssh_cmd,
+                ssh_cmd,
                 '%s@%s' % (self.ssh_user, self.ssh_host),
-                self.zfs_cmd
+                cmd_path
             ]
         else:
-            cmd = [self.zfs_cmd]
+            cmd = [cmd_path]
 
+        cmd.extend(args)
         return cmd
 
     def get_file_systems(self, file_systems=None):
-        cmd = self.cmd.copy()
-        cmd.extend([
+        args = [
             'list',
             '-H',
             '-p',
             '-o', 'name',
             '-t', 'filesystem'
-        ])
+        ]
+        cmd = self.get_cmd('zfs', args)
         output = subprocess.check_output(cmd)
 
         for name in output.decode('utf8').split('\n'):
@@ -359,11 +374,9 @@ class ZFSSnap(object):
 
         return (fs_name, ssh_user, ssh_host)
 
-    def _get_fs_params(self, fs_location, zfs_cmd=None, ssh_cmd=None):
+    def _get_fs_params(self, fs_location, cmds=None):
         fs_name, ssh_user, ssh_host = self._parse_fs_location(fs_location)
-        host = ZFSHost(zfs_cmd=zfs_cmd, ssh_cmd=ssh_cmd,
-                       ssh_user=ssh_user, ssh_host=ssh_host)
-
+        host = ZFSHost(ssh_user=ssh_user, ssh_host=ssh_host, cmds=cmds)
         return (fs_name, host)
 
     def replicate(self, keep, label, src_fs_location, dst_fs_location,
@@ -372,18 +385,24 @@ class ZFSSnap(object):
             raise ZFSReplicationException(
                 'Replication needs a keep value of at least 1.')
 
+        src_cmds = {
+            'zfs': src_zfs_cmd,
+            'ssh': ssh_cmd
+        }
         src_fs_name, src_host = self._get_fs_params(fs_location=src_fs_location,
-                                                    zfs_cmd=src_zfs_cmd,
-                                                    ssh_cmd=ssh_cmd)
+                                                    cmds=src_cmds)
         src_fs = src_host.get_file_system(src_fs_name)
 
         if src_fs is None:
             raise ZFSReplicationException(
                 'The source file system %s does not exist.' % src_fs_location)
 
+        dst_cmds = {
+            'zfs': dst_zfs_cmd,
+            'ssh': ssh_cmd
+        }
         dst_fs_name, dst_host = self._get_fs_params(fs_location=dst_fs_location,
-                                                    zfs_cmd=dst_zfs_cmd,
-                                                    ssh_cmd=ssh_cmd)
+                                                    cmds=dst_cmds)
         dst_fs = ZFSFileSystem(host=dst_host, name=dst_fs_name)
 
         snapshot = src_fs.create_snapshot(label)
@@ -396,11 +415,13 @@ class ZFSSnap(object):
             fs_locations = ['_all']
 
         file_systems = []
+        cmds = {
+            'zfs': zfs_cmd,
+            'ssh': ssh_cmd
+        }
 
         for fs_loc in fs_locations:
-            fs_name, host = self._get_fs_params(fs_location=fs_loc,
-                                                zfs_cmd=zfs_cmd,
-                                                ssh_cmd=ssh_cmd)
+            fs_name, host = self._get_fs_params(fs_location=fs_loc,cmds=cmds)
 
             if fs_name == '_all':
                 file_systems.extend(host.get_file_systems())
