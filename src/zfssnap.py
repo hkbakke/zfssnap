@@ -107,7 +107,7 @@ class ZFSFileSystem(object):
         if 'zol:zfssnap:%s:keep' % label in properties:
             keep = properties['zol:zfssnap:%s:keep' % label]
         elif 'zol:zfssnap:keep' in properties:
-            keep = properties['zol:zfssnap:keep' % label]
+            keep = properties['zol:zfssnap:keep']
         else:
             keep = None
 
