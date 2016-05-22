@@ -287,7 +287,7 @@ class ZFSHost(object):
 
         if cmd_path is None:
             raise ZFSSnapException(
-                '\'%s\' does not have a path defined.' % cmd_path)
+                '\'%s\' does not have a path defined.' % name)
 
         if args is None:
             args = []
