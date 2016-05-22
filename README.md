@@ -119,3 +119,12 @@ Override `keep` value for label on dataset
 Remove property from dataset properties
 
     zfs inherit zol:zfssnap:daily:keep zpool1/temp
+
+## Development
+### Run tests
+Install py.test (preferably in a virtual environment):
+
+    pip install py.test
+Ensure you are standing in the project root:
+
+    PYTHONPATH=src/ py.test
