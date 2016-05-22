@@ -266,7 +266,7 @@ class ZFSFileSystem(object):
 class ZFSHost(object):
     def __init__(self, ssh_user=None, ssh_host=None, cmds=None):
         if cmds is None:
-            cmds={}
+            cmds = {}
 
         self.cmds = self._validate_cmds(cmds)
         self.ssh_user = ssh_user
@@ -421,7 +421,7 @@ class ZFSSnap(object):
         }
 
         for fs_loc in fs_locations:
-            fs_name, host = self._get_fs_params(fs_location=fs_loc,cmds=cmds)
+            fs_name, host = self._get_fs_params(fs_location=fs_loc, cmds=cmds)
 
             if fs_name == '_all':
                 file_systems.extend(host.get_file_systems())
