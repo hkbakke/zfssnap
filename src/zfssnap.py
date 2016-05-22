@@ -295,16 +295,11 @@ class ZFSHost(object):
         ssh_cmd = self.cmds.get('ssh', None)
 
         if ssh_cmd and self.ssh_user and self.ssh_host:
-            cmd = [
-                ssh_cmd,
-                '%s@%s' % (self.ssh_user, self.ssh_host),
-                cmd_path
-            ]
+            cmd = [ssh_cmd, '%s@%s' % (self.ssh_user, self.ssh_host), cmd_path]
         else:
             cmd = [cmd_path]
 
-        cmd.extend(args)
-        return cmd
+        return cmd.extend(args)
 
     def get_file_systems(self, file_systems=None):
         args = [
