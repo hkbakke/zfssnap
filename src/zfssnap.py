@@ -19,6 +19,10 @@ class ZFSReplicationException(Exception):
     pass
 
 
+class ZFSSnapshotException(Exception):
+    pass
+
+
 class ZFSSnapException(Exception):
     pass
 
@@ -31,6 +35,10 @@ class ZFSSnapshot(object):
 
     def create(self, label):
         self.logger.info('Creating snapshot %s', self.name)
+
+        if label == '-':
+            raise ZFSSnapshotException('\'%s\' is not a valid label' % label)
+
         args = [
             'snapshot',
             '-o', 'zol:zfssnap:label=%s' % label,
@@ -552,12 +560,16 @@ def main():
                     src_zfs_cmd=args.src_zfs_cmd,
                     dst_zfs_cmd=args.dst_zfs_cmd,
                     ssh_cmd=args.ssh_cmd)
-    except KeyboardInterrupt:
-        sys.exit(130)
-    except ZFSReplicationException:
-        sys.exit(11)
     except ZFSSnapException:
         sys.exit(10)
+    except ZFSReplicationException:
+        sys.exit(11)
+    except ZFSHostException:
+        sys.exit(12)
+    except ZFSSnapshotException:
+        sys.exit(13)
+    except KeyboardInterrupt:
+        sys.exit(130)
 
 if __name__ == '__main__':
     main()
