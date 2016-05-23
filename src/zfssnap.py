@@ -11,6 +11,10 @@ import fcntl
 import time
 
 
+class ZFSHostException(Exception):
+    pass
+
+
 class ZFSReplicationException(Exception):
     pass
 
@@ -286,7 +290,7 @@ class ZFSHost(object):
         cmd_path = self.cmds.get(name, None)
 
         if cmd_path is None:
-            raise ZFSSnapException(
+            raise ZFSHostException(
                 '\'%s\' does not have a path defined.' % name)
 
         if args is None:
@@ -301,7 +305,6 @@ class ZFSHost(object):
 
         cmd.extend(args)
         self.logger.debug('Command: %s', ' '.join(cmd))
-
         return cmd
 
     def get_file_systems(self, file_systems=None):

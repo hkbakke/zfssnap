@@ -1,5 +1,5 @@
 import pytest
-from zfssnap import ZFSHost, ZFSSnapException
+from zfssnap import ZFSHost, ZFSHostException
 
 class TestZFSHost(object):
     @pytest.fixture
@@ -52,5 +52,5 @@ class TestZFSHost(object):
         ]
 
     def test_get_invalid_cmd(self, host):
-        with pytest.raises(ZFSSnapException):
+        with pytest.raises(ZFSHostException):
             host.get_cmd('_invalid')
