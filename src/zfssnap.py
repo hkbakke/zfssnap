@@ -274,12 +274,11 @@ class ZFSHost(object):
         self.ssh_host = ssh_host
 
     def _validate_cmds(self, cmds):
-        default_cmds = {
+        valid_cmds = {
             'zfs': '/sbin/zfs',
             'ssh': '/usr/bin/ssh'
         }
 
-        valid_cmds = default_cmds
         valid_cmds.update({k: v for k, v in cmds.items() if v is not None})
         return valid_cmds
 
