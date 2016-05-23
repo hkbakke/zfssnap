@@ -339,12 +339,13 @@ class ZFSHost(object):
 
 
 class ZFSSnap(object):
-    def __init__(self):
+    def __init__(self, lockfile=None):
         self.logger = logging.getLogger(__name__)
 
         # The lock file object needs to be at class level for not to be
         # garbage collected after the _aquire_lock function has finished.
         self._lock_f = None
+        self._aquire_lock(lockfile)
 
     def __enter__(self):
         return self
@@ -396,14 +397,10 @@ class ZFSSnap(object):
         return (fs_name, host)
 
     def replicate(self, keep, label, src_fs_location, dst_fs_location,
-                  src_zfs_cmd=None, dst_zfs_cmd=None, ssh_cmd=None,
-                  lockfile=None):
+                  src_zfs_cmd=None, dst_zfs_cmd=None, ssh_cmd=None):
         if keep < 1:
             raise ZFSReplicationException(
                 'Replication needs a keep value of at least 1.')
-
-        # Prevent multiple replication jobs running at the same time
-        self._aquire_lock(lockfile)
 
         src_cmds = {
             'zfs': src_zfs_cmd,
@@ -498,8 +495,6 @@ def main():
         '--label', required=True, help='Snapshot label')
     replicate_parser.add_argument(
         '--ssh-cmd', metavar='PATH', help='Override path to ssh executable')
-    replicate_parser.add_argument(
-        '--lockfile', metavar='PATH', help='Override path to lockfile')
 
     # Snapshot specific arguments
     snapshot_parser = subparsers.add_parser(
@@ -536,6 +531,8 @@ def main():
             'DEBUG'
         ],
         default='INFO', help='Set log level for console output. Default: INFO')
+    parser.add_argument(
+        '--lockfile', metavar='PATH', help='Override path to lockfile')
     args = parser.parse_args()
 
     logger = logging.getLogger()
@@ -549,7 +546,7 @@ def main():
         logger.addHandler(ch)
 
     try:
-        with ZFSSnap() as z:
+        with ZFSSnap(lockfile=args.lockfile) as z:
             if args.subparser == 'snapshot':
                 z.snapshot(
                     keep=args.keep,
@@ -567,8 +564,7 @@ def main():
                     dst_fs_location=args.dst_file_system,
                     src_zfs_cmd=args.src_zfs_cmd,
                     dst_zfs_cmd=args.dst_zfs_cmd,
-                    ssh_cmd=args.ssh_cmd,
-                    lockfile=args.lockfile)
+                    ssh_cmd=args.ssh_cmd)
     except ZFSSnapException:
         sys.exit(10)
     except ZFSReplicationException:
