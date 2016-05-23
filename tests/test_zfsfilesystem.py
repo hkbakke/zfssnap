@@ -4,15 +4,15 @@ from zfssnap import ZFSHost, ZFSFileSystem
 class TestZFSFileSystem(object):
     @pytest.fixture
     def fs(self):
-        fs_name='zpool/dataset'
+        fs_name = 'zpool/dataset'
         host = ZFSHost()
         return ZFSFileSystem(host, fs_name)
 
     @pytest.fixture
     def ssh_fs(self):
-        ssh_user='root'
-        ssh_host='host'
-        fs_name='zpool/dataset'
+        ssh_user = 'root'
+        ssh_host = 'host'
+        fs_name = 'zpool/dataset'
         host = ZFSHost(ssh_user=ssh_user, ssh_host=ssh_host)
         return ZFSFileSystem(host, fs_name)
 
@@ -32,34 +32,34 @@ class TestZFSFileSystem(object):
         label = 'test'
         properties = {}
         assert fs.snapshots_enabled(label, properties) is None
-        
+
     def test_snapshots_enabled_zfssnap_off(self, fs):
         label = 'test'
         properties = {
             'zol:zfssnap': 'off'
         }
-        assert fs.snapshots_enabled(label, properties) == False
+        assert fs.snapshots_enabled(label, properties) is False
 
     def test_snapshots_enabled_zfssnap_on(self, fs):
         label = 'test'
         properties = {
             'zol:zfssnap': 'on'
         }
-        assert fs.snapshots_enabled(label, properties) == True
+        assert fs.snapshots_enabled(label, properties) is True
 
     def test_snapshots_enabled_label_off(self, fs):
         label = 'test'
         properties = {
             'zol:zfssnap:%s' % label: 'off'
         }
-        assert fs.snapshots_enabled(label, properties) == False
+        assert fs.snapshots_enabled(label, properties) is False
 
     def test_snapshots_enabled_label_on(self, fs):
         label = 'test'
         properties = {
             'zol:zfssnap:%s' % label: 'on'
         }
-        assert fs.snapshots_enabled(label, properties) == True
+        assert fs.snapshots_enabled(label, properties) is True
 
     def test_snapshots_enabled_label_on_zfssnap_off(self, fs):
         label = 'test'
@@ -67,7 +67,7 @@ class TestZFSFileSystem(object):
             'zol:zfssnap': 'off',
             'zol:zfssnap:%s' % label: 'on'
         }
-        assert fs.snapshots_enabled(label, properties) == True
+        assert fs.snapshots_enabled(label, properties) is True
 
     def test_snapshots_enabled_label_off_zfssnap_on(self, fs):
         label = 'test'
@@ -75,7 +75,7 @@ class TestZFSFileSystem(object):
             'zol:zfssnap': 'on',
             'zol:zfssnap:%s' % label: 'off'
         }
-        assert fs.snapshots_enabled(label, properties) == False
+        assert fs.snapshots_enabled(label, properties) is False
 
     def test_get_keep(self, fs):
         label = 'test'
