@@ -268,6 +268,7 @@ class ZFSHost(object):
         if cmds is None:
             cmds = {}
 
+        self.logger = logging.getLogger(__name__)
         self.cmds = self._validate_cmds(cmds)
         self.ssh_user = ssh_user
         self.ssh_host = ssh_host
@@ -299,7 +300,10 @@ class ZFSHost(object):
         else:
             cmd = [cmd_path]
 
-        return cmd.extend(args)
+        cmd.extend(args)
+        self.logger.debug('Command: %s', ' '.join(cmd))
+
+        return cmd
 
     def get_file_systems(self, file_systems=None):
         args = [
