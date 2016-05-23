@@ -185,6 +185,9 @@ class ZFSFileSystem(object):
                 if line.strip():
                     name, snapshot_label = line.split('\t')
 
+                    if snapshot_label == '-':
+                        continue
+
                     if not label or snapshot_label == label:
                         yield ZFSSnapshot(self.host, name)
 
