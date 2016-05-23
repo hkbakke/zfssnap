@@ -361,16 +361,21 @@ class ZFSSnap(object):
             lockfile = '/run/lock/zfssnap.lock'
 
         self._lock_f = open(lockfile, 'w')
+        wait = 3
+        timeout = 60
 
-        while True:
+        while timeout > 0:
             try:
                 fcntl.lockf(self._lock_f, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 self.logger.debug('Lock aquired.')
                 return
             except OSError:
                 self.logger.info('zfssnap is already running. Waiting for '
-                                 'lock release...')
-                time.sleep(3)
+                                 'lock release... (timeout: %ss)', timeout)
+                timeout = timeout - wait
+                time.sleep(wait)
+
+        raise ZFSSnapException('Timeout reached. Could not get lock.')
 
     @staticmethod
     def _parse_fs_location(name):
