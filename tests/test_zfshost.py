@@ -1,7 +1,7 @@
 import pytest
 from zfssnap import ZFSHost, ZFSSnapException
 
-class TestZFSFileSystem(object):
+class TestZFSHost(object):
     @pytest.fixture
     def host(self):
         return ZFSHost()
