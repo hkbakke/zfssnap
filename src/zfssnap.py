@@ -88,9 +88,8 @@ class ZFSFileSystem(object):
         else:
             return self.name
 
-    def snapshots_enabled(self, label, properties=None):
-        if properties is None:
-            properties = self.get_properties()
+    def snapshots_enabled(self, label):
+        properties = self.get_properties()
 
         if 'zol:zfssnap:%s' % label in properties:
             value = properties['zol:zfssnap:%s' % label]
@@ -107,9 +106,8 @@ class ZFSFileSystem(object):
                               self.name)
             return False
 
-    def get_keep(self, label, properties=None):
-        if properties is None:
-            properties = self.get_properties()
+    def get_keep(self, label):
+        properties = self.get_properties()
 
         if 'zol:zfssnap:%s:keep' % label in properties:
             keep = properties['zol:zfssnap:%s:keep' % label]
