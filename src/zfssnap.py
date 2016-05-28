@@ -28,13 +28,14 @@ class ZFSSnapException(Exception):
 
 
 class ZFSSnapshot(object):
-    def __init__(self, host, name):
+    def __init__(self, fs, name):
         self.name = name
-        self.host = host
+        self.fs = fs
+        self.full_name = '%s@%s' % (fs.name, name)
         self.logger = logging.getLogger(__name__)
 
     def create(self, label):
-        self.logger.info('Creating snapshot %s', self.name)
+        self.logger.info('Creating snapshot %s', self.full_name)
 
         if label == '-':
             raise ZFSSnapshotException('\'%s\' is not a valid label' % label)
@@ -42,29 +43,23 @@ class ZFSSnapshot(object):
         args = [
             'snapshot',
             '-o', 'zol:zfssnap:label=%s' % label,
-            self.name
+            self.full_name
         ]
-        cmd = self.host.get_cmd('zfs', args)
+        cmd = self.fs.host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
 
     def destroy(self):
-        self.logger.info('Destroying snapshot %s', self.name)
+        self.logger.info('Destroying snapshot %s', self.full_name)
         args = [
             'destroy',
-            self.name
+            self.full_name
         ]
-        cmd = self.host.get_cmd('zfs', args)
+        cmd = self.fs.host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
 
     @property
-    def snapname(self):
-        _, snapname = self.name.split('@')
-        return snapname
-
-    @property
     def datetime(self):
-        _, snapname = self.name.split('@')
-        strptime_name = re.sub(r'Z$', '+0000', snapname)
+        strptime_name = re.sub(r'Z$', '+0000', self.name)
         return datetime.strptime(strptime_name, 'zfssnap_%Y%m%dT%H%M%S%z')
 
 
@@ -155,14 +150,9 @@ class ZFSFileSystem(object):
         return next(iter(snapshots), None)
 
     def snapshot_exists(self, name):
-        if '@' in name:
-            for s in self.get_snapshots():
-                if s.name == name:
-                    return True
-        else:
-            for s in self.get_snapshots():
-                if s.snapname == name:
-                    return True
+        for s in self.get_snapshots():
+            if s.name == name:
+                return True
 
         return False
 
@@ -191,31 +181,32 @@ class ZFSFileSystem(object):
         if output:
             for line in output.decode('utf8').split('\n'):
                 if line.strip():
-                    name, snapshot_label = line.split('\t')
+                    snapshot, snapshot_label = line.split('\t')
 
                     if snapshot_label == '-':
                         continue
 
                     if not label or snapshot_label == label:
-                        yield ZFSSnapshot(self.host, name)
+                        _, name = snapshot.split('@')
+                        yield ZFSSnapshot(self, name)
 
     def replicate(self, snapshot, target_fs):
         self.logger.info('Replicating %s to %s', self.location,
                          target_fs.location)
         latest_s = target_fs.get_latest_snapshot()
 
-        if latest_s and self.snapshot_exists(latest_s.snapname):
+        if latest_s and self.snapshot_exists(latest_s.name):
             send_args = [
                 'send',
                 '-R',
-                '-i', '@%s' % latest_s.snapname,
-                snapshot.name
+                '-i', '@%s' % latest_s.name,
+                snapshot.full_name
             ]
         else:
             send_args = [
                 'send',
                 '-R',
-                snapshot.name
+                snapshot.full_name
             ]
 
         receive_args = [
@@ -255,10 +246,9 @@ class ZFSFileSystem(object):
             ts = datetime.utcnow()
 
         timestamp = ts.strftime('%Y%m%dT%H%M%SZ')
-        name = '%s@zfssnap_%s' % (self.name, timestamp)
-        s = ZFSSnapshot(self.host, name)
+        name = 'zfssnap_%s' % timestamp
+        s = ZFSSnapshot(self, name)
         s.create(label)
-
         return s
 
     def destroy_old_snapshots(self, label, keep, limit=None):
