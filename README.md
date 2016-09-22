@@ -124,7 +124,7 @@ Remove property from dataset properties
 ### Run tests
 Install py.test (preferably in a virtual environment):
 
-    pip install py.test
+    pip3 install pytest
 Ensure you are standing in the project root:
 
-    PYTHONPATH=src/ py.test
+    PYTHONPATH=src/ pytest
