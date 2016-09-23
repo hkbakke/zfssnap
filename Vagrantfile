@@ -7,7 +7,7 @@ Vagrant.configure("2") do |config|
     config.vm.provider "virtualbox" do |v|
         v.name = "zfssnap-dev"
         v.gui = false
-        v.memory = 1024
+        v.memory = 2048
         v.cpus = 1
         (0..3).each do |d|
             disk_image = ".vagrant/disks/disk-#{d}.vdi"
