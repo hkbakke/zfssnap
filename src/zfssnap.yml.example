@@ -1,0 +1,55 @@
+cmds:
+  ssh: /usr/bin/ssh
+  zfs: /sbin/zfs
+
+# The policies have reasonable names in this file, but you can name them as
+# you please, and have as many as you want.
+
+policies:
+  hourly:
+    type: snapshot
+    # If you leave 'include' unset all datasets will be snapshoted by default
+    include:
+      - '*'
+    exclude:
+      - 'pool-2/backup'
+    keep: 24
+    recursive: no
+
+  # A minimal config version snapshotting all datasets with no excludes
+  # non-recursively
+  daily:
+    type: snapshot
+    keep: 31
+
+  # You can have many include and exclude patterns
+  monthly:
+    type: snapshot
+    include:
+      - 'pool-1/prod-1'
+      - 'pool-1/prod-2'
+    exclude:
+      - 'pool-1/backup'
+      - 'pool-2/backup'
+    keep: 3
+    recursive: no
+
+  recursive-1:
+    # Here we are doing recursive snapshots on the top level only, excluding
+    # all nested datasets. Another more manual way is to just define the
+    # top level datasets in the include and leaving exclude unset
+    type: snapshot
+    include:
+      - '*'
+    exclude:
+      - '*/*'
+    keep: 12
+    recursive: yes
+
+  replicate-vms:
+    type: replication
+    source: 'pool-1/vms-1'
+    destination: 'root@remote:pool-2/backup'
+    destination_cmds:
+      zfs: /sbin/zfs
+    keep: 4

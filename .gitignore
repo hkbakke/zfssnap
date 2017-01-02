@@ -3,3 +3,4 @@ src/__pycache__/
 tests/__pycache__/
 .vagrant/
 .cache/
+src/zfssnap.yml

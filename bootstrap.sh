@@ -5,7 +5,7 @@ echo "deb http://httpredir.debian.org/debian jessie-backports main contrib" \
     > /etc/apt/sources.list.d/backports.list
 
 apt-get update
-apt-get install vim python3 python3-pip linux-headers-amd64 -y
+apt-get install vim python3 python3-pip python3-yaml linux-headers-amd64 -y
 apt-get install -t jessie-backports zfs-dkms zfs-zed -y
 
 zpool create -f -m /zpools/dev-1 dev-1 mirror /dev/sdb /dev/sdc

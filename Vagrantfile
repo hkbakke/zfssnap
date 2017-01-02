@@ -1,7 +1,6 @@
 Vagrant.configure("2") do |config|
     config.vm.box = "debian/jessie64"
     config.vm.hostname = "zfssnap-dev"
-    config.vm.network :private_network, type: "dhcp"
     config.vm.provision :shell, path: "bootstrap.sh"
 
     config.vm.provider "virtualbox" do |v|

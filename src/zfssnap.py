@@ -9,6 +9,13 @@ from datetime import datetime
 from operator import attrgetter
 import fcntl
 import time
+import yaml
+import fnmatch
+
+
+PROPERTY_PREFIX = 'zfssnap'
+ZFSSNAP_LABEL = '%s:label' % PROPERTY_PREFIX
+ZFSSNAP_REPL_STATUS = '%s:repl_status' % PROPERTY_PREFIX
 
 
 class ZFSHostException(Exception):
@@ -27,43 +34,150 @@ class ZFSSnapException(Exception):
     pass
 
 
-class ZFSSnapshot(object):
-    def __init__(self, fs, name):
-        self.name = name
-        self.fs = fs
-        self.full_name = '%s@%s' % (fs.name, name)
-        self.logger = logging.getLogger(__name__)
+class ZFSSnapConfigException(Exception):
+    pass
 
-    def create(self, label):
+
+class ZFSSnapConfig(object):
+    def __init__(self, config_file):
+        if config_file is None:
+            config_file = '/etc/zfssnap/zfssnap.yml'
+
+        with open(config_file) as f:
+            self._config = yaml.load(f)
+
+    def get_policy(self, policy):
+        try:
+            return self._config['policies'][policy]
+        except KeyError:
+            raise ZFSSnapConfigException(
+                'The policy \'%s\' is not defined' % policy)
+
+    def get_cmd(self, cmd):
+        return self._config['cmds'][cmd]
+
+    def get_cmds(self):
+        return self._config.get('cmds', {})
+
+
+class ZFSSnapshot(object):
+    def __init__(self, dataset, name):
+        self.name = name
+        self.dataset = dataset
+        self.full_name = '%s@%s' % (dataset.name, name)
+        self.logger = logging.getLogger(__name__)
+        self._properties = dict()
+        self._label = None
+        self._repl_status = None
+
+    def create(self, label, recursive=False, properties=None):
         self.logger.info('Creating snapshot %s', self.full_name)
+
+        if properties is None:
+            properties = {}
 
         if label == '-':
             raise ZFSSnapshotException('\'%s\' is not a valid label' % label)
 
         args = [
             'snapshot',
-            '-o', 'zol:zfssnap:label=%s' % label,
-            self.full_name
+            '-o', '%s=%s' % (ZFSSNAP_LABEL, label),
         ]
-        cmd = self.fs.host.get_cmd('zfs', args)
+
+        for key, value in properties.items():
+            args.extend(['-o', '%s=%s' % (key, value)])
+
+        if recursive:
+            args.append('-r')
+
+        args.append(self.full_name)
+        cmd = self.dataset.host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
 
-    def destroy(self):
+    def destroy(self, recursive=False):
         self.logger.info('Destroying snapshot %s', self.full_name)
-        args = [
-            'destroy',
-            self.full_name
-        ]
-        cmd = self.fs.host.get_cmd('zfs', args)
+        args = ['destroy']
+
+        if recursive:
+            args.append('-r')
+
+        args.append(self.full_name)
+        cmd = self.dataset.host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
+
+    @property
+    def label(self):
+        if self._label:
+            return self._label
+        else:
+            return self.get_property(ZFSSNAP_LABEL)
+
+    @label.setter
+    def label(self, value):
+        self._label = value
+
+    @property
+    def repl_status(self):
+        if self._repl_status:
+            return self._repl_status
+        else:
+            return self.get_property(ZFSSNAP_LABEL)
+
+    @repl_status.setter
+    def repl_status(self, value):
+        self._repl_status = value
 
     @property
     def datetime(self):
         strptime_name = re.sub(r'Z$', '+0000', self.name)
         return datetime.strptime(strptime_name, 'zfssnap_%Y%m%dT%H%M%S%z')
 
+    @staticmethod
+    def _autoconvert(value):
+        for fn in [int]:
+            try:
+                return fn(value)
+            except ValueError:
+                pass
 
-class ZFSFileSystem(object):
+        return value
+
+    def get_properties(self, refresh=False):
+        if refresh or not self._properties:
+            args = [
+                'get', 'all',
+                '-H',
+                '-p',
+                '-o', 'property,value',
+                self.full_name
+            ]
+            cmd = self.dataset.host.get_cmd('zfs', args)
+            output = subprocess.check_output(cmd)
+
+            for line in output.decode('utf8').split('\n'):
+                if not line.strip():
+                    continue
+
+                zfs_property, value = line.split('\t')
+                self._properties[zfs_property] = self._autoconvert(value)
+
+        return self._properties
+
+    def get_property(self, zfs_property, refresh=False):
+        properties = self.get_properties(refresh)
+        return properties[zfs_property]
+
+    def set_property(self, name, value):
+        args = [
+            'set',
+            '%s=%s' % (name, value),
+            self.full_name
+        ]
+        cmd = self.dataset.host.get_cmd('zfs', args)
+        subprocess.check_call(cmd)
+
+
+class ZFSDataset(object):
     def __init__(self, host, name):
         self.name = name
         self.host = host
@@ -88,36 +202,6 @@ class ZFSFileSystem(object):
         else:
             return self.name
 
-    def snapshots_enabled(self, label):
-        properties = self.get_properties()
-
-        if 'zol:zfssnap:%s' % label in properties:
-            value = properties['zol:zfssnap:%s' % label]
-        elif 'zol:zfssnap' in properties:
-            value = properties['zol:zfssnap']
-        else:
-            return None
-
-        if value.lower() == 'on':
-            return True
-        elif value.lower() == 'off':
-            self.logger.debug('%s: Snapshots are disabled by ZFS properties. '
-                              'Use --override to ignore the properties.',
-                              self.name)
-            return False
-
-    def get_keep(self, label):
-        properties = self.get_properties()
-
-        if 'zol:zfssnap:%s:keep' % label in properties:
-            keep = properties['zol:zfssnap:%s:keep' % label]
-        elif 'zol:zfssnap:keep' in properties:
-            keep = properties['zol:zfssnap:keep']
-        else:
-            keep = None
-
-        return keep
-
     def get_properties(self, refresh=False):
         if refresh or not self._properties:
             args = [
@@ -129,36 +213,28 @@ class ZFSFileSystem(object):
             ]
             cmd = self.host.get_cmd('zfs', args)
             output = subprocess.check_output(cmd)
-            properties = dict()
 
             for line in output.decode('utf8').split('\n'):
-                if line.strip():
-                    zfs_property, value = line.split('\t')
-                    properties[zfs_property] = self._autoconvert(value)
+                if not line.strip():
+                    continue
 
-            self._properties = properties
+                zfs_property, value = line.split('\t')
+                self._properties[zfs_property] = self._autoconvert(value)
 
         return self._properties
 
-    def get_latest_snapshot(self):
-        snapshots = sorted(self.get_snapshots(),
+    def get_latest_snapshot(self, label=None):
+        snapshots = sorted(self.get_snapshots(label),
                            key=attrgetter('datetime'),
                            reverse=True)
 
         return next(iter(snapshots), None)
 
-    def snapshot_exists(self, name):
-        for s in self.get_snapshots():
-            if s.name == name:
-                return True
-
-        return False
-
     def get_snapshots(self, label=None):
         args = [
             'list',
             '-H',
-            '-o', 'name,zol:zfssnap:label',
+            '-o', 'name,%s,%s' % (ZFSSNAP_LABEL, ZFSSNAP_REPL_STATUS),
             '-d', '1',
             '-t', 'snapshot',
             self.name
@@ -178,26 +254,35 @@ class ZFSFileSystem(object):
 
         if output:
             for line in output.decode('utf8').split('\n'):
-                if line.strip():
-                    snapshot, snapshot_label = line.split('\t')
+                if not line.strip():
+                    continue
 
-                    if snapshot_label == '-':
-                        continue
+                snapshot_name, snapshot_label, repl_status = line.split('\t')
 
-                    if not label or snapshot_label == label:
-                        _, name = snapshot.split('@')
-                        yield ZFSSnapshot(self, name)
+                if not label or snapshot_label == label:
+                    _, name = snapshot_name.split('@')
+                    snapshot = ZFSSnapshot(self, name)
+                    snapshot.label = label
+                    snapshot.repl_status = repl_status
+                    yield snapshot
 
-    def replicate(self, snapshot, target_fs):
+    def replicate(self, dst_dataset, label):
+        self.logger.info('Cleaning up previously failed replications...')
+        self.destroy_failed_snapshots(label)
+
         self.logger.info('Replicating %s to %s', self.location,
-                         target_fs.location)
-        latest_s = target_fs.get_latest_snapshot()
+                         dst_dataset.location)
+        previous_snapshot = self.get_latest_snapshot(label)
+        properties = {
+            ZFSSNAP_REPL_STATUS: 'failed'
+        }
+        snapshot = self.create_snapshot(label=label, properties=properties)
 
-        if latest_s and self.snapshot_exists(latest_s.name):
+        if previous_snapshot:
             send_args = [
                 'send',
                 '-R',
-                '-i', '@%s' % latest_s.name,
+                '-I', '@%s' % previous_snapshot.name,
                 snapshot.full_name
             ]
         else:
@@ -211,11 +296,11 @@ class ZFSFileSystem(object):
             'receive',
             '-F',
             '-v',
-            target_fs.name
+            dst_dataset.name
         ]
 
         send_cmd = self.host.get_cmd('zfs', send_args)
-        receive_cmd = target_fs.host.get_cmd('zfs', receive_args)
+        receive_cmd = dst_dataset.host.get_cmd('zfs', receive_args)
         self.logger.debug('Replicate cmd: \'%s | %s\'', ' '.join(send_cmd),
                           ' '.join(receive_cmd))
         send = subprocess.Popen(send_cmd, stdout=subprocess.PIPE)
@@ -236,35 +321,37 @@ class ZFSFileSystem(object):
             if line:
                 self.logger.info(line)
 
-        if receive.returncode != 0:
+        if receive.returncode == 0:
+            snapshot.set_property(ZFSSNAP_REPL_STATUS, 'success')
+        else:
             raise ZFSReplicationException('Replication failed!')
 
-    def create_snapshot(self, label, ts=None):
+    def create_snapshot(self, label, recursive=False, ts=None, properties=None):
         if ts is None:
             ts = datetime.utcnow()
 
         timestamp = ts.strftime('%Y%m%dT%H%M%SZ')
         name = 'zfssnap_%s' % timestamp
-        s = ZFSSnapshot(self, name)
-        s.create(label)
-        return s
+        snapshot = ZFSSnapshot(self, name)
+        snapshot.create(label=label, recursive=recursive, properties=properties)
+        return snapshot
 
-    def destroy_old_snapshots(self, label, keep, limit=None):
+    def destroy_failed_snapshots(self, label=None):
+        for snapshot in self.get_snapshots(label):
+            if snapshot.repl_status != 'success':
+                snapshot.destroy()
+
+    def destroy_old_snapshots(self, keep, label=None, limit=None, recursive=False):
         snapshots = sorted(self.get_snapshots(label),
                            key=attrgetter('datetime'),
                            reverse=True)[keep:]
-        destroyed_snapshots = list()
 
         for snapshot in sorted(snapshots, key=attrgetter('datetime'),
                                reverse=False):
             if limit and len(destroyed_snapshots) >= limit:
-                break
+                return
 
-            snapshot.destroy()
-            destroyed_snapshots.append(snapshot)
-
-        return destroyed_snapshots
-
+            snapshot.destroy(recursive)
 
 class ZFSHost(object):
     def __init__(self, ssh_user=None, ssh_host=None, cmds=None):
@@ -278,8 +365,8 @@ class ZFSHost(object):
 
     def _validate_cmds(self, cmds):
         valid_cmds = {
-            'zfs': '/sbin/zfs',
-            'ssh': '/usr/bin/ssh'
+            'zfs': 'zfs',
+            'ssh': 'ssh'
         }
 
         valid_cmds.update({k: v for k, v in cmds.items() if v is not None})
@@ -306,7 +393,7 @@ class ZFSHost(object):
         self.logger.debug('Command: %s', ' '.join(cmd))
         return cmd
 
-    def get_file_systems(self, file_systems=None):
+    def get_filesystems(self, include_filters=None, exclude_filters=None):
         args = [
             'list',
             '-H',
@@ -317,23 +404,50 @@ class ZFSHost(object):
         cmd = self.get_cmd('zfs', args)
         output = subprocess.check_output(cmd)
 
-        for name in output.decode('utf8').split('\n'):
-            if name.strip():
-                if not file_systems or name in file_systems:
-                    yield ZFSFileSystem(host=self, name=name)
+        if include_filters is None:
+            include_filters = []
 
-    def get_file_system(self, file_system):
-        return next(self.get_file_systems([file_system]), None)
+        if exclude_filters is None:
+            exclude_filters = []
+
+        for name in output.decode('utf8').split('\n'):
+            exclude = False
+
+            if not name.strip():
+                continue
+
+            for pattern in exclude_filters:
+                if fnmatch.fnmatch(name, pattern):
+                    self.logger.info('\'%s\' is excluded by pattern \'%s\'',
+                                     name, pattern)
+                    exclude = True
+                    break
+
+            if exclude:
+                continue
+
+            if include_filters:
+                for pattern in include_filters:
+                    if fnmatch.fnmatch(name, pattern):
+                        yield ZFSDataset(host=self, name=name)
+                        break
+            else:
+                yield ZFSDataset(host=self, name=name)
+
+    def get_filesystem(self, fs_name):
+        return next(self.get_filesystems([fs_name]), None)
 
 
 class ZFSSnap(object):
-    def __init__(self, lockfile=None):
+    def __init__(self, config=None, lockfile=None):
         self.logger = logging.getLogger(__name__)
 
         # The lock file object needs to be at class level for not to be
         # garbage collected after the _aquire_lock function has finished.
         self._lock_f = None
         self._aquire_lock(lockfile)
+
+        self.config = ZFSSnapConfig(config)
 
     def __enter__(self):
         return self
@@ -366,7 +480,7 @@ class ZFSSnap(object):
         raise ZFSSnapException('Timeout reached. Could not get lock.')
 
     @staticmethod
-    def _parse_fs_location(name):
+    def _parse_destination_name(name):
         ssh_user = None
         ssh_host = None
         fs_name = None
@@ -379,138 +493,76 @@ class ZFSSnap(object):
 
         return (fs_name, ssh_user, ssh_host)
 
-    def _get_fs_params(self, fs_location, cmds=None):
-        fs_name, ssh_user, ssh_host = self._parse_fs_location(fs_location)
-        host = ZFSHost(ssh_user=ssh_user, ssh_host=ssh_host, cmds=cmds)
-        return (fs_name, host)
+    def execute_policy(self, policy, reset=False):
+        policy_config = self.config.get_policy(policy)
+        local_host = ZFSHost(cmds=self.config.get_cmds())
 
-    def replicate(self, keep, label, src_fs_location, dst_fs_location,
-                  src_zfs_cmd=None, dst_zfs_cmd=None, ssh_cmd=None):
+        if policy_config['type'] == 'snapshot':
+            self.snapshot(
+                keep=policy_config['keep'],
+                label=policy,
+                reset=reset,
+                recursive=policy_config.get('recursive', False),
+                datasets=local_host.get_filesystems(policy_config.get('include', None),
+                                                    policy_config.get('exclude', None)))
+        elif policy_config['type'] == 'replication':
+            dst_dataset_name, ssh_user, ssh_host = self._parse_destination_name(policy_config['destination'])
+            dst_host = ZFSHost(ssh_user=ssh_user, ssh_host=ssh_host,
+                               cmds=policy_config.get('destination_cmds', None))
+            dst_dataset = dst_host.get_filesystem(dst_dataset_name)
+
+            if not dst_dataset:
+                raise ZFSReplicationException('The dataset %s does not exist' %
+                                              dst_dataset_name)
+
+            self.replicate(
+                keep=policy_config['keep'],
+                label=policy,
+                reset=reset,
+                src_dataset=local_host.get_filesystem(policy_config['source']),
+                dst_dataset=dst_dataset)
+
+    def replicate(self, keep, label, src_dataset, dst_dataset, reset=False):
         if keep < 1:
             raise ZFSReplicationException(
                 'Replication needs a keep value of at least 1.')
 
-        src_cmds = {
-            'zfs': src_zfs_cmd,
-            'ssh': ssh_cmd
-        }
-        src_fs_name, src_host = self._get_fs_params(fs_location=src_fs_location,
-                                                    cmds=src_cmds)
-        src_fs = src_host.get_file_system(src_fs_name)
+        if reset:
+            self.logger.warning('Reset is enabled. Reinitializing replication '
+                                'for this policy')
+            keep = 0
+            dst_dataset.destroy_old_snapshots(keep=keep, label=None)
+        else:
+            src_dataset.replicate(dst_dataset, label)
 
-        if src_fs is None:
-            raise ZFSReplicationException(
-                'The source file system %s does not exist.' % src_fs_location)
+        src_dataset.destroy_old_snapshots(keep=keep, label=label)
 
-        dst_cmds = {
-            'zfs': dst_zfs_cmd,
-            'ssh': ssh_cmd
-        }
-        dst_fs_name, dst_host = self._get_fs_params(fs_location=dst_fs_location,
-                                                    cmds=dst_cmds)
-        dst_fs = ZFSFileSystem(host=dst_host, name=dst_fs_name)
+    def snapshot(self, keep, label, datasets=None, recursive=False, reset=False):
+        if datasets is None:
+            datasets = []
 
-        snapshot = src_fs.create_snapshot(label)
-        src_fs.replicate(snapshot, dst_fs)
-        src_fs.destroy_old_snapshots(label, keep)
+        if reset:
+            self.logger.warning('Reset is enabled. Removing all snapshots '
+                                'for this policy')
+            keep = 0
 
-    def snapshot(self, keep, label, fs_locations=None, zfs_cmd=None,
-                 ssh_cmd=None, override=False, default_exclude=False):
-        if fs_locations is None:
-            fs_locations = ['_all']
+        for dataset in datasets:
+            if keep > 0:
+                dataset.create_snapshot(label=label, recursive=recursive)
 
-        file_systems = []
-        cmds = {
-            'zfs': zfs_cmd,
-            'ssh': ssh_cmd
-        }
-
-        for fs_loc in fs_locations:
-            fs_name, host = self._get_fs_params(fs_location=fs_loc, cmds=cmds)
-
-            if fs_name == '_all':
-                file_systems.extend(host.get_file_systems())
-            else:
-                file_systems.append(host.get_file_system(fs_name))
-
-        for fs in file_systems:
-            if override:
-                snapshots_enabled = True
-                fs_keep = keep
-            else:
-                snapshots_enabled = not default_exclude
-                fs_snapshots_enabled = fs.snapshots_enabled(label)
-
-                if fs_snapshots_enabled is not None:
-                    snapshots_enabled = fs_snapshots_enabled
-
-                fs_keep = fs.get_keep(label)
-
-                if fs_keep is None:
-                    fs_keep = keep
-
-            if snapshots_enabled:
-                if fs_keep > 0:
-                    fs.create_snapshot(label)
-
-                fs.destroy_old_snapshots(label, fs_keep)
+            dataset.destroy_old_snapshots(keep=keep, label=label,
+                                          recursive=recursive)
 
 
 def main():
     parser = argparse.ArgumentParser(
         description='Automatic snapshotting and replication for ZFS on Linux')
-    subparsers = parser.add_subparsers(dest='subparser')
-
-    # Replication specific arguments
-    replicate_parser = subparsers.add_parser(
-        'replicate', help='Replication sub-commands')
-    replicate_parser.add_argument(
-        '--src-file-system', metavar='FILE_SYSTEM', required=True,
-        help='File system to replicate')
-    replicate_parser.add_argument(
-        '--dst-file-system', metavar='FILE_SYSTEM', required=True,
-        help='File system to replicate to')
-    replicate_parser.add_argument(
-        '--src-zfs-cmd', metavar='PATH',
-        help='Override path to source zfs executable')
-    replicate_parser.add_argument(
-        '--dst-zfs-cmd', metavar='PATH',
-        help='Override path to destination zfs executable')
-    replicate_parser.add_argument(
-        '--keep', metavar='INT', type=int, required=True,
-        help='Number of snapshots to keep')
-    replicate_parser.add_argument(
-        '--label', required=True, help='Snapshot label')
-    replicate_parser.add_argument(
-        '--ssh-cmd', metavar='PATH', help='Override path to ssh executable')
-
-    # Snapshot specific arguments
-    snapshot_parser = subparsers.add_parser(
-        'snapshot', help='Snapshot sub-commands')
-    snapshot_parser.add_argument(
-        '--file-systems', nargs='+', help='Select specific file systems.')
-    snapshot_parser.add_argument(
-        '--override', action='store_true',
-        help='Ignore ZFS properties and use command line arguments')
-    snapshot_parser.add_argument(
-        '--default-exclude', action='store_true',
-        help='Disable snapshots by default, unless enabled by ZFS properties')
-    snapshot_parser.add_argument(
-        '--zfs-cmd', metavar='PATH',
-        help='Override path to zfs executable')
-    snapshot_parser.add_argument(
-        '--keep', metavar='INT', type=int, required=True,
-        help='Number of snapshots to keep')
-    snapshot_parser.add_argument(
-        '--label', required=True, help='Snapshot label')
-    snapshot_parser.add_argument(
-        '--ssh-cmd', metavar='PATH', help='Override path to ssh executable')
 
     # Common arguments
     parser.add_argument(
         '--quiet', action='store_true', help='Suppress output from script')
     parser.add_argument(
-        '--verbosity',
+        '--log-level',
         choices=[
             'CRITICAL',
             'ERROR',
@@ -519,6 +571,13 @@ def main():
             'DEBUG'
         ],
         default='INFO', help='Set log level for console output. Default: INFO')
+    parser.add_argument(
+        '--config', help='Path to configuration file')
+    parser.add_argument(
+        '--policy', required=True, help='Select policy')
+    parser.add_argument(
+        '--reset', action='store_true',
+        help='Remove all policy snapshots or reinitialize replication')
     parser.add_argument(
         '--lockfile', metavar='PATH', help='Override path to lockfile')
     args = parser.parse_args()
@@ -529,30 +588,13 @@ def main():
     if not args.quiet:
         fmt = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
         ch = logging.StreamHandler()
-        ch.setLevel(args.verbosity)
+        ch.setLevel(args.log_level)
         ch.setFormatter(fmt)
         logger.addHandler(ch)
 
     try:
-        with ZFSSnap(lockfile=args.lockfile) as z:
-            if args.subparser == 'snapshot':
-                z.snapshot(
-                    keep=args.keep,
-                    label=args.label,
-                    fs_locations=args.file_systems,
-                    zfs_cmd=args.zfs_cmd,
-                    ssh_cmd=args.ssh_cmd,
-                    default_exclude=args.default_exclude,
-                    override=args.override)
-            elif args.subparser == 'replicate':
-                z.replicate(
-                    keep=args.keep,
-                    label=args.label,
-                    src_fs_location=args.src_file_system,
-                    dst_fs_location=args.dst_file_system,
-                    src_zfs_cmd=args.src_zfs_cmd,
-                    dst_zfs_cmd=args.dst_zfs_cmd,
-                    ssh_cmd=args.ssh_cmd)
+        with ZFSSnap(config=args.config, lockfile=args.lockfile) as z:
+            z.execute_policy(args.policy, args.reset)
     except ZFSSnapException:
         sys.exit(10)
     except ZFSReplicationException:
@@ -561,6 +603,8 @@ def main():
         sys.exit(12)
     except ZFSSnapshotException:
         sys.exit(13)
+    except ZFSSnapConfigException:
+        sys.exit(14)
     except KeyboardInterrupt:
         sys.exit(130)
 
