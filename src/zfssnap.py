@@ -9,8 +9,9 @@ from datetime import datetime
 from operator import attrgetter
 import fcntl
 import time
-import yaml
 import fnmatch
+
+import yaml
 
 
 PROPERTY_PREFIX = 'zfssnap'
@@ -342,16 +343,13 @@ class ZFSDataset(object):
             if snapshot.repl_status != 'success':
                 snapshot.destroy()
 
-    def destroy_old_snapshots(self, keep, label=None, limit=None, recursive=False):
+    def destroy_old_snapshots(self, keep, label=None, recursive=False):
         snapshots = sorted(self.get_snapshots(label),
                            key=attrgetter('datetime'),
                            reverse=True)[keep:]
 
         for snapshot in sorted(snapshots, key=attrgetter('datetime'),
                                reverse=False):
-            if limit and len(destroyed_snapshots) >= limit:
-                return
-
             snapshot.destroy(recursive)
 
 class ZFSHost(object):
@@ -364,7 +362,8 @@ class ZFSHost(object):
         self.ssh_user = ssh_user
         self.ssh_host = ssh_host
 
-    def _validate_cmds(self, cmds):
+    @staticmethod
+    def _validate_cmds(cmds):
         valid_cmds = {
             'zfs': 'zfs',
             'ssh': 'ssh'
