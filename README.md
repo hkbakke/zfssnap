@@ -7,7 +7,10 @@ are compatible with the shadow_copy2 module in Samba for use with
 Previous Versions.
 
 ## Requirements
-* Only tested on Python v3.4 on Debian Jessie.
+* Tested on Debian Jessie and Stretch
+* ZFS on Linux packages
+* Python >= 3.4
+* python3-yaml
 
 ## ZFS properties used
 * `zfssnap:label=[str]`: Identifies the label of the snapshot.
