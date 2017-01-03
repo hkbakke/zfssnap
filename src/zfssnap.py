@@ -16,6 +16,7 @@ import fnmatch
 PROPERTY_PREFIX = 'zfssnap'
 ZFSSNAP_LABEL = '%s:label' % PROPERTY_PREFIX
 ZFSSNAP_REPL_STATUS = '%s:repl_status' % PROPERTY_PREFIX
+VERSION = '3.0.0'
 
 
 class ZFSHostException(Exception):
@@ -558,7 +559,11 @@ def main():
     parser = argparse.ArgumentParser(
         description='Automatic snapshotting and replication for ZFS on Linux')
 
-    # Common arguments
+    mutex_group = parser.add_mutually_exclusive_group(required=True)
+    mutex_group.add_argument(
+        '--version', action='store_true', help='Print version and exit')
+    mutex_group.add_argument(
+        '--policy', help='Select policy')
     parser.add_argument(
         '--quiet', action='store_true', help='Suppress output from script')
     parser.add_argument(
@@ -572,15 +577,17 @@ def main():
         ],
         default='INFO', help='Set log level for console output. Default: INFO')
     parser.add_argument(
-        '--config', help='Path to configuration file')
-    parser.add_argument(
-        '--policy', required=True, help='Select policy')
+        '--config', metavar='PATH', help='Path to configuration file')
     parser.add_argument(
         '--reset', action='store_true',
         help='Remove all policy snapshots or reinitialize replication')
     parser.add_argument(
         '--lockfile', metavar='PATH', help='Override path to lockfile')
     args = parser.parse_args()
+
+    if args.version:
+        print('zfssnap v%s' % VERSION)
+        sys.exit(0)
 
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
