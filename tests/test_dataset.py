@@ -1,31 +1,31 @@
 import pytest
-from zfssnap import ZFSHost, ZFSDataset
+from zfssnap import Host, Dataset
 import subprocess
 
 
 PROPERTY_PREFIX = 'zfssnap'
 
 
-class TestZFSDataset(object):
+class TestDataset(object):
     @pytest.fixture
     def fs(self):
         fs_name = 'zpool/dataset'
-        host = ZFSHost()
-        return ZFSDataset(host, fs_name)
+        host = Host()
+        return Dataset(host, fs_name)
 
     @pytest.fixture
     def ssh_fs(self):
         ssh_user = 'root'
         ssh_host = 'host'
         fs_name = 'zpool/dataset'
-        host = ZFSHost(ssh_user=ssh_user, ssh_host=ssh_host)
-        return ZFSDataset(host, fs_name)
+        host = Host(ssh_user=ssh_user, ssh_host=ssh_host)
+        return Dataset(host, fs_name)
 
     def test_autoconvert_to_int(self):
-        assert isinstance(ZFSDataset._autoconvert('123'), int)
+        assert isinstance(Dataset._autoconvert('123'), int)
 
     def test_autoconvert_to_str(self):
-        assert isinstance(ZFSDataset._autoconvert('12f'), str)
+        assert isinstance(Dataset._autoconvert('12f'), str)
 
     def test_return_local_location(self, fs):
         assert fs.location == 'zpool/dataset'

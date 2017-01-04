@@ -1,13 +1,13 @@
 import pytest
 import datetime
-from zfssnap import ZFSHost, ZFSDataset, ZFSSnapshot
+from zfssnap import Host, Dataset, Snapshot
 
-class TestZFSSnapshot(object):
+class TestSnapshot(object):
     @pytest.fixture
     def snapshot(self):
-        host = ZFSHost()
-        fs = ZFSDataset(host, 'zpool/dataset')
-        return ZFSSnapshot(fs, 'zfssnap_20160522T201201Z')
+        host = Host()
+        fs = Dataset(host, 'zpool/dataset')
+        return Snapshot(fs, 'zfssnap_20160522T201201Z')
 
     def test_datetime(self, snapshot):
         assert snapshot.datetime == datetime.datetime(

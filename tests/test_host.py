@@ -1,10 +1,10 @@
 import pytest
-from zfssnap import ZFSHost, ZFSHostException
+from zfssnap import Host, HostException
 
-class TestZFSHost(object):
+class TestHost(object):
     @pytest.fixture
     def host(self):
-        return ZFSHost()
+        return Host()
 
     @pytest.fixture
     def host_with_cmds(self):
@@ -12,13 +12,13 @@ class TestZFSHost(object):
             'newbin': '/some/path/newbin',
             'zfs': '/some/path/zfs'
         }
-        return ZFSHost(cmds=cmds)
+        return Host(cmds=cmds)
 
     @pytest.fixture
     def ssh_host(self):
         ssh_user = 'root'
         ssh_host = 'host'
-        return ZFSHost(ssh_user=ssh_user, ssh_host=ssh_host)
+        return Host(ssh_user=ssh_user, ssh_host=ssh_host)
 
     @pytest.fixture
     def ssh_host_with_cmds(self):
@@ -28,7 +28,7 @@ class TestZFSHost(object):
             'newbin': '/some/path/newbin',
             'ssh': '/some/path/ssh'
         }
-        return ZFSHost(ssh_user=ssh_user, ssh_host=ssh_host, cmds=cmds)
+        return Host(ssh_user=ssh_user, ssh_host=ssh_host, cmds=cmds)
 
     def test_get_cmd_defaults(self, host):
         assert host.get_cmd('zfs') == ['zfs']
@@ -52,5 +52,5 @@ class TestZFSHost(object):
         ]
 
     def test_get_invalid_cmd(self, host):
-        with pytest.raises(ZFSHostException):
+        with pytest.raises(HostException):
             host.get_cmd('_invalid')

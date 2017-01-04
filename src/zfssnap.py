@@ -20,15 +20,15 @@ ZFSSNAP_REPL_STATUS = '%s:repl_status' % PROPERTY_PREFIX
 VERSION = '3.0.0'
 
 
-class ZFSHostException(Exception):
+class HostException(Exception):
     pass
 
 
-class ZFSReplicationException(Exception):
+class ReplicationException(Exception):
     pass
 
 
-class ZFSSnapshotException(Exception):
+class SnapshotException(Exception):
     pass
 
 
@@ -36,11 +36,11 @@ class ZFSSnapException(Exception):
     pass
 
 
-class ZFSSnapConfigException(Exception):
+class ConfigException(Exception):
     pass
 
 
-class ZFSSnapConfig(object):
+class Config(object):
     def __init__(self, config_file):
         if config_file is None:
             config_file = '/etc/zfssnap/zfssnap.yml'
@@ -52,7 +52,7 @@ class ZFSSnapConfig(object):
         try:
             return self._config['policies'][policy]
         except KeyError:
-            raise ZFSSnapConfigException(
+            raise ConfigException(
                 'The policy \'%s\' is not defined' % policy)
 
     def get_cmd(self, cmd):
@@ -62,7 +62,7 @@ class ZFSSnapConfig(object):
         return self._config.get('cmds', {})
 
 
-class ZFSSnapshot(object):
+class Snapshot(object):
     def __init__(self, dataset, name):
         self.name = name
         self.dataset = dataset
@@ -79,7 +79,7 @@ class ZFSSnapshot(object):
             properties = {}
 
         if label == '-':
-            raise ZFSSnapshotException('\'%s\' is not a valid label' % label)
+            raise SnapshotException('\'%s\' is not a valid label' % label)
 
         args = [
             'snapshot',
@@ -179,7 +179,7 @@ class ZFSSnapshot(object):
         subprocess.check_call(cmd)
 
 
-class ZFSDataset(object):
+class Dataset(object):
     def __init__(self, host, name):
         self.name = name
         self.host = host
@@ -263,7 +263,7 @@ class ZFSDataset(object):
 
                 if not label or snapshot_label == label:
                     _, name = snapshot_name.split('@')
-                    snapshot = ZFSSnapshot(self, name)
+                    snapshot = Snapshot(self, name)
                     snapshot.label = label
                     snapshot.repl_status = repl_status
                     yield snapshot
@@ -326,7 +326,7 @@ class ZFSDataset(object):
         if receive.returncode == 0:
             snapshot.set_property(ZFSSNAP_REPL_STATUS, 'success')
         else:
-            raise ZFSReplicationException('Replication failed!')
+            raise ReplicationException('Replication failed!')
 
     def create_snapshot(self, label, recursive=False, ts=None, properties=None):
         if ts is None:
@@ -334,7 +334,7 @@ class ZFSDataset(object):
 
         timestamp = ts.strftime('%Y%m%dT%H%M%SZ')
         name = 'zfssnap_%s' % timestamp
-        snapshot = ZFSSnapshot(self, name)
+        snapshot = Snapshot(self, name)
         snapshot.create(label=label, recursive=recursive, properties=properties)
         return snapshot
 
@@ -352,7 +352,7 @@ class ZFSDataset(object):
                                reverse=False):
             snapshot.destroy(recursive)
 
-class ZFSHost(object):
+class Host(object):
     def __init__(self, ssh_user=None, ssh_host=None, cmds=None):
         if cmds is None:
             cmds = {}
@@ -376,7 +376,7 @@ class ZFSHost(object):
         cmd_path = self.cmds.get(name, None)
 
         if cmd_path is None:
-            raise ZFSHostException(
+            raise HostException(
                 '\'%s\' does not have a path defined.' % name)
 
         if args is None:
@@ -429,10 +429,10 @@ class ZFSHost(object):
             if include_filters:
                 for pattern in include_filters:
                     if fnmatch.fnmatch(name, pattern):
-                        yield ZFSDataset(host=self, name=name)
+                        yield Dataset(host=self, name=name)
                         break
             else:
-                yield ZFSDataset(host=self, name=name)
+                yield Dataset(host=self, name=name)
 
     def get_filesystem(self, fs_name):
         return next(self.get_filesystems([fs_name]), None)
@@ -447,7 +447,7 @@ class ZFSSnap(object):
         self._lock_f = None
         self._aquire_lock(lockfile)
 
-        self.config = ZFSSnapConfig(config)
+        self.config = Config(config)
 
     def __enter__(self):
         return self
@@ -495,7 +495,7 @@ class ZFSSnap(object):
 
     def execute_policy(self, policy, reset=False):
         policy_config = self.config.get_policy(policy)
-        local_host = ZFSHost(cmds=self.config.get_cmds())
+        local_host = Host(cmds=self.config.get_cmds())
 
         if policy_config['type'] == 'snapshot':
             self.snapshot(
@@ -507,12 +507,12 @@ class ZFSSnap(object):
                                                     policy_config.get('exclude', None)))
         elif policy_config['type'] == 'replication':
             dst_dataset_name, ssh_user, ssh_host = self._parse_destination_name(policy_config['destination'])
-            dst_host = ZFSHost(ssh_user=ssh_user, ssh_host=ssh_host,
+            dst_host = Host(ssh_user=ssh_user, ssh_host=ssh_host,
                                cmds=policy_config.get('destination_cmds', None))
             dst_dataset = dst_host.get_filesystem(dst_dataset_name)
 
             if not dst_dataset:
-                raise ZFSReplicationException('The dataset %s does not exist' %
+                raise ReplicationException('The dataset %s does not exist' %
                                               dst_dataset_name)
 
             self.replicate(
@@ -524,7 +524,7 @@ class ZFSSnap(object):
 
     def replicate(self, keep, label, src_dataset, dst_dataset, reset=False):
         if keep < 1:
-            raise ZFSReplicationException(
+            raise ReplicationException(
                 'Replication needs a keep value of at least 1.')
 
         if reset:
@@ -603,13 +603,13 @@ def main():
             z.execute_policy(args.policy, args.reset)
     except ZFSSnapException:
         sys.exit(10)
-    except ZFSReplicationException:
+    except ReplicationException:
         sys.exit(11)
-    except ZFSHostException:
+    except HostException:
         sys.exit(12)
-    except ZFSSnapshotException:
+    except SnapshotException:
         sys.exit(13)
-    except ZFSSnapConfigException:
+    except ConfigException:
         sys.exit(14)
     except KeyboardInterrupt:
         sys.exit(130)
