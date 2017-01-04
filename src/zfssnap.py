@@ -10,6 +10,7 @@ from operator import attrgetter
 import fcntl
 import time
 import fnmatch
+from distutils.version import StrictVersion
 
 import yaml
 
@@ -80,6 +81,7 @@ class Snapshot(object):
         self.dataset_name, self.snapshot_name = name.split('@')
         self.host = host
         self._snapshot_name = None
+        self._version = None
 
         if properties is None:
             self._properties = dict()
@@ -151,8 +153,29 @@ class Snapshot(object):
         self.set_property(ZFSSNAP_REPL_STATUS, value)
 
     @property
+    def version(self):
+        if not self._version:
+            version = self.get_property(ZFSSNAP_VERSION)
+
+            if version is None:
+                if self.get_property('zfssnap:label'):
+                    version = '3.0.0'
+                elif self.get_property('zol:zfssnap:label'):
+                    version = '2.0.0'
+
+            self._version = version
+
+        return self._version
+
+    @property
     def label(self):
-        return self.get_property(ZFSSNAP_LABEL)
+        property = ZFSSNAP_LABEL
+        version = self.version
+
+        if StrictVersion('3.0.0') > StrictVersion(version) >= StrictVersion('2.0.0'):
+            property = 'zol:zfssnap:label'
+
+        return self.get_property(property)
 
     def get_property(self, zfs_property, refresh=False):
         return self.get_properties(refresh).get(zfs_property, None)
@@ -218,7 +241,9 @@ class Dataset(object):
             snapshots[name][zfs_property] = autotype(value)
 
         for name, properties in snapshots.items():
-            if label and properties.get(ZFSSNAP_LABEL, None) != label:
+            snapshot = Snapshot(self.host, name, properties=properties)
+
+            if label and snapshot.label != label:
                 continue
 
             yield Snapshot(self.host, name, properties=properties)
