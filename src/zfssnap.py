@@ -20,6 +20,16 @@ ZFSSNAP_REPL_STATUS = '%s:repl_status' % PROPERTY_PREFIX
 VERSION = '3.0.0'
 
 
+def autotype(value):
+    for fn in [int]:
+        try:
+            return fn(value)
+        except ValueError:
+            pass
+
+    return value
+
+
 class HostException(Exception):
     pass
 
@@ -63,20 +73,20 @@ class Config(object):
 
 
 class Snapshot(object):
-    def __init__(self, dataset, name):
-        self.name = name
-        self.dataset = dataset
-        self.full_name = '%s@%s' % (dataset.name, name)
+    def __init__(self, host, name, properties=None):
         self.logger = logging.getLogger(__name__)
-        self._properties = dict()
-        self._label = None
-        self._repl_status = None
-
-    def create(self, label, recursive=False, properties=None):
-        self.logger.info('Creating snapshot %s', self.full_name)
+        self.name = name
+        self.dataset_name, self.snapshot_name = name.split('@')
+        self.host = host
+        self._snapshot_name = None
 
         if properties is None:
-            properties = {}
+            self._properties = dict()
+        else:
+            self._properties = properties
+
+    def create(self, label, recursive=False):
+        self.logger.info('Creating snapshot %s', self.name)
 
         if label == '-':
             raise SnapshotException('\'%s\' is not a valid label' % label)
@@ -86,63 +96,23 @@ class Snapshot(object):
             '-o', '%s=%s' % (ZFSSNAP_LABEL, label),
         ]
 
-        for key, value in properties.items():
-            args.extend(['-o', '%s=%s' % (key, value)])
-
         if recursive:
             args.append('-r')
 
-        args.append(self.full_name)
-        cmd = self.dataset.host.get_cmd('zfs', args)
+        args.append(self.name)
+        cmd = self.host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
 
     def destroy(self, recursive=False):
-        self.logger.info('Destroying snapshot %s', self.full_name)
+        self.logger.info('Destroying snapshot %s', self.name)
         args = ['destroy']
 
         if recursive:
             args.append('-r')
 
-        args.append(self.full_name)
-        cmd = self.dataset.host.get_cmd('zfs', args)
+        args.append(self.name)
+        cmd = self.host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
-
-    @property
-    def label(self):
-        if self._label:
-            return self._label
-        else:
-            return self.get_property(ZFSSNAP_LABEL)
-
-    @label.setter
-    def label(self, value):
-        self._label = value
-
-    @property
-    def repl_status(self):
-        if self._repl_status:
-            return self._repl_status
-        else:
-            return self.get_property(ZFSSNAP_LABEL)
-
-    @repl_status.setter
-    def repl_status(self, value):
-        self._repl_status = value
-
-    @property
-    def datetime(self):
-        strptime_name = re.sub(r'Z$', '+0000', self.name)
-        return datetime.strptime(strptime_name, 'zfssnap_%Y%m%dT%H%M%S%z')
-
-    @staticmethod
-    def _autoconvert(value):
-        for fn in [int]:
-            try:
-                return fn(value)
-            except ValueError:
-                pass
-
-        return value
 
     def get_properties(self, refresh=False):
         if refresh or not self._properties:
@@ -161,40 +131,46 @@ class Snapshot(object):
                     continue
 
                 zfs_property, value = line.split('\t')
-                self._properties[zfs_property] = self._autoconvert(value)
+                self._properties[zfs_property] = autotype(value)
 
         return self._properties
 
+    @property
+    def datetime(self):
+        strptime_name = re.sub(r'Z$', '+0000', self.snapshot_name)
+        return datetime.strptime(strptime_name, 'zfssnap_%Y%m%dT%H%M%S%z')
+
+    @property
+    def repl_status(self):
+        return self.get_property(ZFSSNAP_REPL_STATUS)
+
+    @repl_status.setter
+    def repl_status(self, value):
+        self.set_property(ZFSSNAP_REPL_STATUS, value)
+
+    @property
+    def label(self):
+        return self.get_property(ZFSSNAP_LABEL)
+
     def get_property(self, zfs_property, refresh=False):
-        properties = self.get_properties(refresh)
-        return properties[zfs_property]
+        return self.get_properties(refresh).get(zfs_property, None)
 
     def set_property(self, name, value):
         args = [
             'set',
             '%s=%s' % (name, value),
-            self.full_name
+            self.name
         ]
-        cmd = self.dataset.host.get_cmd('zfs', args)
+        cmd = self.host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
+        self._properties[name] = value
 
 
 class Dataset(object):
     def __init__(self, host, name):
         self.name = name
         self.host = host
-        self._properties = dict()
         self.logger = logging.getLogger(__name__)
-
-    @staticmethod
-    def _autoconvert(value):
-        for fn in [int]:
-            try:
-                return fn(value)
-            except ValueError:
-                pass
-
-        return value
 
     @property
     def location(self):
@@ -204,94 +180,68 @@ class Dataset(object):
         else:
             return self.name
 
-    def get_properties(self, refresh=False):
-        if refresh or not self._properties:
-            args = [
-                'get', 'all',
-                '-H',
-                '-p',
-                '-o', 'property,value',
-                self.name
-            ]
-            cmd = self.host.get_cmd('zfs', args)
-            output = subprocess.check_output(cmd)
-
-            for line in output.decode('utf8').split('\n'):
-                if not line.strip():
-                    continue
-
-                zfs_property, value = line.split('\t')
-                self._properties[zfs_property] = self._autoconvert(value)
-
-        return self._properties
-
-    def get_latest_snapshot(self, label=None):
+    def get_latest_replication_snapshot(self, label=None):
         snapshots = sorted(self.get_snapshots(label),
                            key=attrgetter('datetime'),
                            reverse=True)
 
-        return next(iter(snapshots), None)
+        for snapshot in snapshots:
+            if snapshot.repl_status == 'success':
+                return snapshot
 
     def get_snapshots(self, label=None):
+        snapshots = {}
+
         args = [
-            'list',
+            'get', 'all',
             '-H',
-            '-o', 'name,%s,%s' % (ZFSSNAP_LABEL, ZFSSNAP_REPL_STATUS),
+            '-p',
+            '-o', 'name,property,value',
             '-d', '1',
             '-t', 'snapshot',
             self.name
         ]
         cmd = self.host.get_cmd('zfs', args)
+        output = subprocess.check_output(cmd)
 
-        try:
-            output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
-        except subprocess.CalledProcessError as e:
-            msg = e.output.decode('utf8').strip()
+        for line in output.decode('utf8').split('\n'):
+            if not line.strip():
+                continue
 
-            if 'dataset does not exist' in msg:
-                output = None
-            else:
-                self.logger.error(msg)
-                raise
+            name, zfs_property, value = line.split('\t')
 
-        if output:
-            for line in output.decode('utf8').split('\n'):
-                if not line.strip():
-                    continue
+            if name not in snapshots:
+                snapshots[name] = {}
 
-                snapshot_name, snapshot_label, repl_status = line.split('\t')
+            snapshots[name][zfs_property] = autotype(value)
 
-                if not label or snapshot_label == label:
-                    _, name = snapshot_name.split('@')
-                    snapshot = Snapshot(self, name)
-                    snapshot.label = label
-                    snapshot.repl_status = repl_status
-                    yield snapshot
+        for name, properties in snapshots.items():
+            if label and properties.get(ZFSSNAP_LABEL, None) != label:
+                continue
+
+            yield Snapshot(self.host, name, properties=properties)
 
     def replicate(self, dst_dataset, label):
         self.logger.info('Cleaning up previously failed replications...')
-        self.destroy_failed_snapshots(label)
+        self.destroy_failed_replication_snapshots(label)
 
         self.logger.info('Replicating %s to %s', self.location,
                          dst_dataset.location)
-        previous_snapshot = self.get_latest_snapshot(label)
-        properties = {
-            ZFSSNAP_REPL_STATUS: 'failed'
-        }
-        snapshot = self.create_snapshot(label=label, properties=properties)
+        previous_snapshot = self.get_latest_replication_snapshot(label)
+        snapshot = self.create_snapshot(label=label)
 
         if previous_snapshot:
             send_args = [
                 'send',
                 '-R',
-                '-I', '@%s' % previous_snapshot.name,
-                snapshot.full_name
+                '-I', '@%s' % previous_snapshot.snapshot_name,
+                snapshot.name
             ]
         else:
             send_args = [
                 'send',
                 '-R',
-                snapshot.full_name
+                snapshot.name
             ]
 
         receive_args = [
@@ -324,21 +274,21 @@ class Dataset(object):
                 self.logger.info(line)
 
         if receive.returncode == 0:
-            snapshot.set_property(ZFSSNAP_REPL_STATUS, 'success')
+            snapshot.repl_status = 'success'
         else:
             raise ReplicationException('Replication failed!')
 
-    def create_snapshot(self, label, recursive=False, ts=None, properties=None):
+    def create_snapshot(self, label, recursive=False, ts=None):
         if ts is None:
             ts = datetime.utcnow()
 
         timestamp = ts.strftime('%Y%m%dT%H%M%SZ')
-        name = 'zfssnap_%s' % timestamp
-        snapshot = Snapshot(self, name)
-        snapshot.create(label=label, recursive=recursive, properties=properties)
+        snapshot_name = '%s@zfssnap_%s' % (self.name, timestamp)
+        snapshot = Snapshot(self.host, snapshot_name)
+        snapshot.create(label=label, recursive=recursive)
         return snapshot
 
-    def destroy_failed_snapshots(self, label=None):
+    def destroy_failed_replication_snapshots(self, label):
         for snapshot in self.get_snapshots(label):
             if snapshot.repl_status != 'success':
                 snapshot.destroy()
@@ -508,7 +458,7 @@ class ZFSSnap(object):
         elif policy_config['type'] == 'replication':
             dst_dataset_name, ssh_user, ssh_host = self._parse_destination_name(policy_config['destination'])
             dst_host = Host(ssh_user=ssh_user, ssh_host=ssh_host,
-                               cmds=policy_config.get('destination_cmds', None))
+                            cmds=policy_config.get('destination_cmds', None))
             dst_dataset = dst_host.get_filesystem(dst_dataset_name)
 
             if not dst_dataset:

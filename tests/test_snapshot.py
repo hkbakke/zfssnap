@@ -6,8 +6,7 @@ class TestSnapshot(object):
     @pytest.fixture
     def snapshot(self):
         host = Host()
-        fs = Dataset(host, 'zpool/dataset')
-        return Snapshot(fs, 'zfssnap_20160522T201201Z')
+        return Snapshot(Host, 'zpool/dataset@zfssnap_20160522T201201Z')
 
     def test_datetime(self, snapshot):
         assert snapshot.datetime == datetime.datetime(
