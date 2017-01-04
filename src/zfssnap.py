@@ -14,10 +14,11 @@ import fnmatch
 import yaml
 
 
+VERSION = '3.1.0'
 PROPERTY_PREFIX = 'zfssnap'
 ZFSSNAP_LABEL = '%s:label' % PROPERTY_PREFIX
 ZFSSNAP_REPL_STATUS = '%s:repl_status' % PROPERTY_PREFIX
-VERSION = '3.0.0'
+ZFSSNAP_VERSION = '%s:version' % PROPERTY_PREFIX
 
 
 def autotype(value):
@@ -94,6 +95,7 @@ class Snapshot(object):
         args = [
             'snapshot',
             '-o', '%s=%s' % (ZFSSNAP_LABEL, label),
+            '-o', '%s=%s' % (ZFSSNAP_VERSION, VERSION)
         ]
 
         if recursive:
