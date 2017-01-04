@@ -1,5 +1,5 @@
 import pytest
-from zfssnap import Host, Dataset
+from zfssnap import autotype, Host, Dataset
 import subprocess
 
 
@@ -21,11 +21,11 @@ class TestDataset(object):
         host = Host(ssh_user=ssh_user, ssh_host=ssh_host)
         return Dataset(host, fs_name)
 
-    def test_autoconvert_to_int(self):
-        assert isinstance(Dataset._autoconvert('123'), int)
+    def test_autotype_to_int(self):
+        assert isinstance(autotype('123'), int)
 
-    def test_autoconvert_to_str(self):
-        assert isinstance(Dataset._autoconvert('12f'), str)
+    def test_autotype_to_str(self):
+        assert isinstance(autotype('12f'), str)
 
     def test_return_local_location(self, fs):
         assert fs.location == 'zpool/dataset'
