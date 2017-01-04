@@ -118,27 +118,6 @@ class Snapshot(object):
         cmd = self.host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
 
-    def get_properties(self, refresh=False):
-        if refresh or not self._properties:
-            args = [
-                'get', 'all',
-                '-H',
-                '-p',
-                '-o', 'property,value',
-                self.full_name
-            ]
-            cmd = self.dataset.host.get_cmd('zfs', args)
-            output = subprocess.check_output(cmd)
-
-            for line in output.decode('utf8').split('\n'):
-                if not line.strip():
-                    continue
-
-                zfs_property, value = line.split('\t')
-                self._properties[zfs_property] = autotype(value)
-
-        return self._properties
-
     @property
     def datetime(self):
         strptime_name = re.sub(r'Z$', '+0000', self.snapshot_name)
@@ -169,16 +148,16 @@ class Snapshot(object):
 
     @property
     def label(self):
-        property = ZFSSNAP_LABEL
+        zfs_property = ZFSSNAP_LABEL
         version = self.version
 
         if StrictVersion('3.0.0') > StrictVersion(version) >= StrictVersion('2.0.0'):
-            property = 'zol:zfssnap:label'
+            zfs_property = 'zol:zfssnap:label'
 
-        return self.get_property(property)
+        return self.get_property(zfs_property)
 
-    def get_property(self, zfs_property, refresh=False):
-        return self.get_properties(refresh).get(zfs_property, None)
+    def get_property(self, zfs_property):
+        return self._properties.get(zfs_property, None)
 
     def set_property(self, name, value):
         args = [
@@ -250,7 +229,7 @@ class Dataset(object):
 
     def replicate(self, dst_dataset, label):
         self.logger.info('Cleaning up previously failed replications...')
-        self.destroy_failed_replication_snapshots(label)
+        self.destroy_failed_snapshots(label)
 
         self.logger.info('Replicating %s to %s', self.location,
                          dst_dataset.location)
@@ -315,7 +294,7 @@ class Dataset(object):
         snapshot.create(label=label, recursive=recursive)
         return snapshot
 
-    def destroy_failed_replication_snapshots(self, label, recursive=True):
+    def destroy_failed_snapshots(self, label, recursive=True):
         for snapshot in self.get_snapshots(label):
             if snapshot.repl_status != 'success':
                 snapshot.destroy(recursive)
@@ -490,7 +469,7 @@ class ZFSSnap(object):
 
             if not dst_dataset:
                 raise ReplicationException('The dataset %s does not exist' %
-                                              dst_dataset_name)
+                                           dst_dataset_name)
 
             self.replicate(
                 keep=policy_config['keep'],
