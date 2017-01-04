@@ -15,14 +15,15 @@ Previous Versions.
 ## ZFS properties used
 * `zfssnap:label=[str]`: Identifies the label of the snapshot.
 * `zfssnap:repl_status=[str]`: Used to keep replication state of a snapshot
+* `zfssnap:version=[str]`: zfssnap version used to create the snapshot
 
 ## Configuration
 zfssnap expects the configuration file to be located at
 `/etc/zfssnap/zfssnap.yml`. You can override this locatin using the `--config`
 argument.
 
-In earlier versions zfssnap stored its configuration in ZFS properties and had
-many more command line arguments, but this proved confusing, inflexible and
+In versions before v3.0.0 zfssnap stored its configuration in ZFS properties and
+had many more command line arguments, but this proved confusing, inflexible and
 unmanagable in more complex setups. ZFS properties are now only used for keeping
 state and information about the snapshot, while the configuration is stored in
 the configuration file.
