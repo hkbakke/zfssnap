@@ -255,7 +255,7 @@ class Dataset(object):
         self.logger.info('Replicating %s to %s', self.location,
                          dst_dataset.location)
         previous_snapshot = self.get_latest_replication_snapshot(label)
-        snapshot = self.create_snapshot(label=label)
+        snapshot = self.create_snapshot(label=label, recursive=True)
 
         if previous_snapshot:
             send_args = [
@@ -315,10 +315,10 @@ class Dataset(object):
         snapshot.create(label=label, recursive=recursive)
         return snapshot
 
-    def destroy_failed_replication_snapshots(self, label):
+    def destroy_failed_replication_snapshots(self, label, recursive=True):
         for snapshot in self.get_snapshots(label):
             if snapshot.repl_status != 'success':
-                snapshot.destroy()
+                snapshot.destroy(recursive)
 
     def destroy_old_snapshots(self, keep, label=None, recursive=False):
         snapshots = sorted(self.get_snapshots(label),
@@ -508,11 +508,13 @@ class ZFSSnap(object):
             self.logger.warning('Reset is enabled. Reinitializing replication '
                                 'for this policy')
             keep = 0
-            dst_dataset.destroy_old_snapshots(keep=keep, label=None)
+            dst_dataset.destroy_old_snapshots(keep=keep, label=None,
+                                              recursive=True)
         else:
             src_dataset.replicate(dst_dataset, label)
 
-        src_dataset.destroy_old_snapshots(keep=keep, label=label)
+        src_dataset.destroy_old_snapshots(keep=keep, label=label,
+                                          recursive=True)
 
     def snapshot(self, keep, label, datasets=None, recursive=False, reset=False):
         if datasets is None:
