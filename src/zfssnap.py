@@ -231,8 +231,6 @@ class Dataset(object):
         self.logger.info('Cleaning up previously failed replications...')
         self.destroy_failed_snapshots(label)
 
-        self.logger.info('Replicating %s to %s', self.location,
-                         dst_dataset.location)
         previous_snapshot = self.get_latest_replication_snapshot(label)
         snapshot = self.create_snapshot(label=label, recursive=True)
 
@@ -261,6 +259,9 @@ class Dataset(object):
         receive_cmd = dst_dataset.host.get_cmd('zfs', receive_args)
         self.logger.debug('Replicate cmd: \'%s | %s\'', ' '.join(send_cmd),
                           ' '.join(receive_cmd))
+
+        self.logger.info('Replicating %s to %s', self.location,
+                         dst_dataset.location)
         send = subprocess.Popen(send_cmd, stdout=subprocess.PIPE)
         receive = subprocess.Popen(receive_cmd, stdin=send.stdout,
                                    stdout=subprocess.PIPE)
