@@ -149,9 +149,8 @@ class Snapshot(object):
     @property
     def label(self):
         zfs_property = ZFSSNAP_LABEL
-        version = self.version
 
-        if StrictVersion('3.0.0') > StrictVersion(version) >= StrictVersion('2.0.0'):
+        if StrictVersion('3.0.0') > StrictVersion(self.version) >= StrictVersion('2.0.0'):
             zfs_property = 'zol:zfssnap:label'
 
         return self.get_property(zfs_property)
@@ -453,18 +452,20 @@ class ZFSSnap(object):
         raise ZFSSnapException('Timeout reached. Could not get lock.')
 
     @staticmethod
-    def _parse_destination_name(name):
-        ssh_user = None
-        ssh_host = None
-        fs_name = None
+    def _parse_dst_name(name):
+        parsed = {
+            'ssh_user': None,
+            'ssh_host': None,
+            'dataset': None,
+        }
 
         if '@' in name:
-            ssh_user, tail = name.split('@', 1)
-            ssh_host, fs_name = tail.split(':', 1)
+            parsed['ssh_user'], tail = name.split('@', 1)
+            parsed['ssh_host'], parsed['fs_name'] = tail.split(':', 1)
         else:
-            fs_name = name
+            parsed['dataset'] = name
 
-        return (fs_name, ssh_user, ssh_host)
+        return parsed
 
     def execute_policy(self, policy, reset=False):
         policy_config = self.config.get_policy(policy)
@@ -479,14 +480,15 @@ class ZFSSnap(object):
                 datasets=local_host.get_filesystems(policy_config.get('include', None),
                                                     policy_config.get('exclude', None)))
         elif policy_config['type'] == 'replication':
-            dst_dataset_name, ssh_user, ssh_host = self._parse_destination_name(policy_config['destination'])
-            dst_host = Host(ssh_user=ssh_user, ssh_host=ssh_host,
+            dst_params = self._parse_dst_name(policy_config['destination'])
+            dst_host = Host(ssh_user=dst_params['ssh_user'],
+                            ssh_host=dst_params['ssh_host'],
                             cmds=policy_config.get('destination_cmds', None))
-            dst_dataset = dst_host.get_filesystem(dst_dataset_name)
+            dst_dataset = dst_host.get_filesystem(dst_params['dataset'])
 
             if not dst_dataset:
                 raise ReplicationException('The dataset %s does not exist' %
-                                           dst_dataset_name)
+                                           dst_params['dataset'])
 
             self.replicate(
                 label=policy,
@@ -517,8 +519,7 @@ class ZFSSnap(object):
             if keep > 0:
                 dataset.create_snapshot(label=label, recursive=recursive)
 
-            dataset.cleanup_snapshots(keep=keep, label=label,
-                                          recursive=recursive)
+            dataset.cleanup_snapshots(keep=keep, label=label, recursive=recursive)
 
 
 def main():
