@@ -197,6 +197,24 @@ class Dataset(object):
 
             return snapshot
 
+    def destroy(self, recursive=False):
+        self.logger.info('Destroying dataset %s', self.name)
+        args = ['destroy']
+
+        if recursive:
+            args.append('-r')
+
+        args.append(self.name)
+        cmd = self.host.get_cmd('zfs', args)
+        subprocess.check_call(cmd)
+
+    @property
+    def exists(self):
+        if self.host.get_filesystem(self.name):
+            return True
+        else:
+            return False
+
     def get_snapshots(self, label=None):
         snapshots = {}
 
@@ -487,11 +505,7 @@ class ZFSSnap(object):
             dst_host = Host(ssh_user=dst_params['ssh_user'],
                             ssh_host=dst_params['ssh_host'],
                             cmds=policy_config.get('destination_cmds', None))
-            dst_dataset = dst_host.get_filesystem(dst_params['dataset'])
-
-            if not dst_dataset:
-                raise ReplicationException('The dataset %s does not exist' %
-                                           dst_params['dataset'])
+            dst_dataset = Dataset(dst_host, dst_params['dataset'])
 
             self.replicate(
                 label=policy,
@@ -504,8 +518,10 @@ class ZFSSnap(object):
             self.logger.warning('Reset is enabled. Reinitializing replication.')
             self.logger.warning('Cleaning up source replication snapshots')
             src_dataset.cleanup_repl_snapshots(label=label, keep=0)
-            self.logger.warning('Cleaning up all destination snapshots')
-            dst_dataset.cleanup_snapshots(label=None, keep=0, recursive=True)
+
+            if dst_dataset.exists:
+                self.logger.warning('Destroying destination dataset')
+                dst_dataset.destroy(recursive=True)
         else:
             src_dataset.replicate(dst_dataset, label)
 
