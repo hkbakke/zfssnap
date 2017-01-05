@@ -52,4 +52,3 @@ policies:
     destination: 'root@remote:pool-2/backup'
     destination_cmds:
       zfs: /sbin/zfs
-    keep: 4

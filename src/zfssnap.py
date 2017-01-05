@@ -184,7 +184,7 @@ class Dataset(object):
         else:
             return self.name
 
-    def get_latest_replication_snapshot(self, label=None):
+    def get_latest_repl_snapshot(self, label=None):
         snapshots = sorted(self.get_snapshots(label),
                            key=attrgetter('datetime'),
                            reverse=True)
@@ -231,7 +231,7 @@ class Dataset(object):
         self.logger.info('Cleaning up previously failed replications...')
         self.destroy_failed_snapshots(label)
 
-        previous_snapshot = self.get_latest_replication_snapshot(label)
+        previous_snapshot = self.get_latest_repl_snapshot(label)
         snapshot = self.create_snapshot(label=label, recursive=True)
 
         if previous_snapshot:
@@ -473,28 +473,23 @@ class ZFSSnap(object):
                                            dst_dataset_name)
 
             self.replicate(
-                keep=policy_config['keep'],
                 label=policy,
                 reset=reset,
                 src_dataset=local_host.get_filesystem(policy_config['source']),
                 dst_dataset=dst_dataset)
 
-    def replicate(self, keep, label, src_dataset, dst_dataset, reset=False):
-        if keep < 1:
-            raise ReplicationException(
-                'Replication needs a keep value of at least 1.')
+    def replicate(self, label, src_dataset, dst_dataset, reset=False):
+        keep = 1
 
         if reset:
             self.logger.warning('Reset is enabled. Reinitializing replication '
                                 'for this policy')
             keep = 0
-            dst_dataset.destroy_old_snapshots(keep=keep, label=None,
-                                              recursive=True)
+            dst_dataset.destroy_old_snapshots(keep=keep, label=None, recursive=True)
         else:
             src_dataset.replicate(dst_dataset, label)
 
-        src_dataset.destroy_old_snapshots(keep=keep, label=label,
-                                          recursive=True)
+        src_dataset.destroy_old_snapshots(keep=keep, label=label, recursive=True)
 
     def snapshot(self, keep, label, datasets=None, recursive=False, reset=False):
         if datasets is None:
