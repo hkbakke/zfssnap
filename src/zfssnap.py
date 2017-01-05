@@ -491,7 +491,7 @@ class ZFSSnap(object):
 
         if '@' in name:
             parsed['ssh_user'], tail = name.split('@', 1)
-            parsed['ssh_host'], parsed['fs_name'] = tail.split(':', 1)
+            parsed['ssh_host'], parsed['dataset'] = tail.split(':', 1)
         else:
             parsed['dataset'] = name
 
