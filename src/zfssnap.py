@@ -249,6 +249,11 @@ class Dataset(object):
 
             yield Snapshot(self.host, name, properties=properties)
 
+    def get_snapshot(self, snapshot_name):
+        for snapshot in self.get_snapshots():
+            if snapshot.snapshot_name == snapshot_name:
+                return snapshot
+
     def replicate(self, dst_dataset, label):
         previous_snapshot = self.get_latest_repl_snapshot(label)
         snapshot = self.create_snapshot(label=label, recursive=True)
@@ -312,6 +317,10 @@ class Dataset(object):
             # It is therefore important to ensure that at least one replication
             # snapshot with repl_status success exists at all times.
             snapshot.repl_status = 'success'
+
+            # For completeness also set repl_status to success on destination.
+            dst_dataset.get_snapshot(snapshot.snapshot_name).repl_status = 'success'
+
             self.cleanup_repl_snapshots(label=label)
         else:
             raise ReplicationException('Replication failed!')
