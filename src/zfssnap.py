@@ -144,6 +144,9 @@ class Snapshot(object):
 
             self._version = version
 
+        if not self._version:
+            raise SnapshotException('Snapshot version not found')
+
         return self._version
 
     @property
