@@ -500,7 +500,7 @@ class ZFSSnap(object):
             self.logger.warning('Cleaning up source replication snapshots')
             src_dataset.cleanup_repl_snapshots(label=label, keep=0)
             self.logger.warning('Cleaning up all destination snapshots')
-            dst_dataset.cleanup_repl_snapshots(label=None, keep=0)
+            dst_dataset.cleanup_snapshots(label=None, keep=0, recursive=True)
         else:
             src_dataset.replicate(dst_dataset, label)
 
