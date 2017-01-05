@@ -108,7 +108,7 @@ class Snapshot(object):
         subprocess.check_call(cmd)
 
     def destroy(self, recursive=False):
-        self.logger.info('Destroying snapshot %s', self.name)
+        self.logger.info('Destroying snapshot %s (label: %s)', self.name, self.label)
         args = ['destroy']
 
         if recursive:
@@ -184,14 +184,16 @@ class Dataset(object):
         else:
             return self.name
 
-    def get_latest_repl_snapshot(self, label=None):
+    def get_latest_repl_snapshot(self, label=None, status='success'):
         snapshots = sorted(self.get_snapshots(label),
                            key=attrgetter('datetime'),
                            reverse=True)
 
         for snapshot in snapshots:
-            if snapshot.repl_status == 'success':
-                return snapshot
+            if snapshot.repl_status != status:
+                continue
+
+            return snapshot
 
     def get_snapshots(self, label=None):
         snapshots = {}
@@ -228,9 +230,6 @@ class Dataset(object):
             yield Snapshot(self.host, name, properties=properties)
 
     def replicate(self, dst_dataset, label):
-        self.logger.info('Cleaning up previously failed replication snapshots')
-        self.destroy_failed_snapshots(label)
-
         previous_snapshot = self.get_latest_repl_snapshot(label)
         snapshot = self.create_snapshot(label=label, recursive=True)
 
@@ -281,7 +280,19 @@ class Dataset(object):
                 self.logger.info(line)
 
         if receive.returncode == 0:
+            # CAUTION!
+            # There is potential for a race condition here. To ensure only
+            # successfully replicated snapshots are replicated on the next run,
+            # repl_status is set immediately after replication.
+            # However, if the script fails in that short time period,
+            # then the script would not be able to find this snapshot on the
+            # next run as it only looks for success in repl_status for
+            # potential snapshots to use for incremental replication, even
+            # though it exists on both sides.
+            # It is therefore important to ensure that at least one replication
+            # snapshot with repl_status success exists at all times.
             snapshot.repl_status = 'success'
+            self.cleanup_repl_snapshots(label=label)
         else:
             raise ReplicationException('Replication failed!')
 
@@ -295,18 +306,23 @@ class Dataset(object):
         snapshot.create(label=label, recursive=recursive)
         return snapshot
 
-    def destroy_failed_snapshots(self, label, recursive=True):
-        for snapshot in self.get_snapshots(label):
-            if snapshot.repl_status != 'success':
-                snapshot.destroy(recursive)
+    def cleanup_repl_snapshots(self, label=None, keep=1):
+        snapshots = self.get_snapshots(label)
+        keep_snapshots = []
 
-    def destroy_old_snapshots(self, keep, label=None, recursive=False):
+        for snapshot in sorted(snapshots, key=attrgetter('datetime'), reverse=True):
+            if len(keep_snapshots) < keep:
+                if snapshot.repl_status == 'success':
+                    keep_snapshots.append(snapshot)
+            else:
+                snapshot.destroy(recursive=True)
+
+    def cleanup_snapshots(self, keep, label=None, recursive=False):
         snapshots = sorted(self.get_snapshots(label),
                            key=attrgetter('datetime'),
                            reverse=True)[keep:]
 
-        for snapshot in sorted(snapshots, key=attrgetter('datetime'),
-                               reverse=False):
+        for snapshot in sorted(snapshots, key=attrgetter('datetime')):
             snapshot.destroy(recursive)
 
 class Host(object):
@@ -479,17 +495,14 @@ class ZFSSnap(object):
                 dst_dataset=dst_dataset)
 
     def replicate(self, label, src_dataset, dst_dataset, reset=False):
-        keep = 1
-
         if reset:
-            self.logger.warning('Reset is enabled. Reinitializing replication '
-                                'for this policy')
-            keep = 0
-            dst_dataset.destroy_old_snapshots(keep=keep, label=None, recursive=True)
+            self.logger.warning('Reset is enabled. Reinitializing replication.')
+            self.logger.warning('Cleaning up source replication snapshots')
+            src_dataset.cleanup_repl_snapshots(label=label, keep=0)
+            self.logger.warning('Cleaning up all destination snapshots')
+            dst_dataset.cleanup_repl_snapshots(label=None, keep=0)
         else:
             src_dataset.replicate(dst_dataset, label)
-
-        src_dataset.destroy_old_snapshots(keep=keep, label=label, recursive=True)
 
     def snapshot(self, keep, label, datasets=None, recursive=False, reset=False):
         if datasets is None:
@@ -504,7 +517,7 @@ class ZFSSnap(object):
             if keep > 0:
                 dataset.create_snapshot(label=label, recursive=recursive)
 
-            dataset.destroy_old_snapshots(keep=keep, label=label,
+            dataset.cleanup_snapshots(keep=keep, label=label,
                                           recursive=recursive)
 
 
