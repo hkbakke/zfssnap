@@ -228,7 +228,7 @@ class Dataset(object):
             yield Snapshot(self.host, name, properties=properties)
 
     def replicate(self, dst_dataset, label):
-        self.logger.info('Cleaning up previously failed replications...')
+        self.logger.info('Cleaning up previously failed replication snapshots')
         self.destroy_failed_snapshots(label)
 
         previous_snapshot = self.get_latest_repl_snapshot(label)
