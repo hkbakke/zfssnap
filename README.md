@@ -29,18 +29,16 @@ state and information about the snapshot, while the configuration is stored in
 the configuration file.
 
 ## Usage
-zfssnap works with the concept of arbitrarily named policies. These are defined
-in the YAML based configuration file. An example file is provided with the
-source.
-Running the command normally just involves pointing to a configured policy
-policy and running the command.
+zfssnap works with the concept of policies. These are defined in the YAML based
+configuration file. An example file is provided with the source.
+Running the command normally just involves pointing to a policy name.
 
 Create a snapshot of all ZFS file systems defined in the policy `hourly`.
 
-    ./zfssnap.py -- policy hourly
-Remove all snapshots for a policy or reset replication
+    ./zfssnap.py --policy hourly
+Remove all snapshots for a policy or re-initialize a replication policy
 
-    ./zfssnap.py -- policy hourly --reset
+    ./zfssnap.py --policy hourly --reset
 
 List all options
 
