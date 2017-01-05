@@ -19,8 +19,8 @@ Previous Versions.
 
 ## Configuration
 zfssnap expects the configuration file to be located at
-`/etc/zfssnap/zfssnap.yml`. You can override this locatin using the `--config`
-argument.
+`/etc/zfssnap/zfssnap.yml`.
+You can override this location using the `--config` argument.
 
 In versions before v3.0.0 zfssnap stored its configuration in ZFS properties and
 had many more command line arguments, but this proved confusing, inflexible and
@@ -42,14 +42,6 @@ Remove all snapshots for a policy or reset replication
 
     ./zfssnap.py -- policy hourly --reset
 
-The following syntaxes are valid when specifiying a dataset:
-
-    1. ssh_user@ssh_server:dataset
-    2. dataset
-
-You need to take care of the key distribution for passwordless logins by normal
-ssh mechanisms before the ssh options can be used.
-
 List all options
 
     ./zfssnap.py --help
@@ -64,7 +56,7 @@ crontab for this purpose:
     20   04     *  *  *   /usr/local/sbin/zfssnap --log-level WARNING --policy daily-vms
     */5  *      *  *  *   /usr/local/sbin/zfssnap --log-level WARNING --policy replicate-pve
 
-* `zfssnap.py` has been symlinked to `/usr/sbin/zfssnap` for ease of use.
+* `zfssnap.py` has been symlinked to `/usr/local/sbin/zfssnap` for ease of use.
 * `--quiet` can be used to supress all output, even warnings and errors.
   However, you are normally interested in getting a notification from cron if
   something goes wrong.
@@ -80,11 +72,6 @@ The .zfs directory can remain hidden.
 
     [<some share>]
     vfs_objects = shadow_copy2
-
-## Example usage of ZFS properties
-List snapshots with zfssnap labels
-
-    zfs list -o name,zfssnap:label -t snapshot
 
 ## Development
 ### Run tests
