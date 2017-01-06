@@ -479,7 +479,7 @@ class ZFSSnap(object):
                 timeout = timeout - wait
                 time.sleep(wait)
 
-        raise ZFSSnapException('Timeout reached. Could not get lock.')
+        raise ZFSSnapException('Timeout reached. Could not aquire lock.')
 
     @staticmethod
     def _parse_dst_name(name):
