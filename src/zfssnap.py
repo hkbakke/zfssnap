@@ -484,6 +484,11 @@ class ZFSSnap(object):
         raise ZFSSnapException('Timeout reached. Could not aquire lock.')
 
     def execute_policy(self, policy, reset=False):
+        sleep = 1
+        self.logger.debug('Sleeping %ss to avoid potential snapshot name '
+                          'collisions due to matching timestamps', sleep)
+        time.sleep(sleep)
+
         policy_config = self.config.get_policy(policy)
         local_host = Host(cmds=self.config.get_cmds())
 
