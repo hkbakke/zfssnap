@@ -180,9 +180,8 @@ class Dataset(object):
 
     @property
     def location(self):
-        if self.host.ssh_user and self.host.ssh_host:
-            return '%s@%s:%s' % (self.host.ssh_user, self.host.ssh_host,
-                                 self.name)
+        if self.host.name:
+            return '%s:%s' % (self.host.name, self.name)
         else:
             return self.name
 
@@ -355,14 +354,14 @@ class Dataset(object):
             snapshot.destroy(recursive)
 
 class Host(object):
-    def __init__(self, ssh_user=None, ssh_host=None, cmds=None):
+    def __init__(self, ssh_user=None, name=None, cmds=None):
         if cmds is None:
             cmds = {}
 
         self.logger = logging.getLogger(__name__)
         self.cmds = self._validate_cmds(cmds)
         self.ssh_user = ssh_user
-        self.ssh_host = ssh_host
+        self.name = name
 
     @staticmethod
     def _validate_cmds(cmds):
@@ -386,8 +385,11 @@ class Host(object):
 
         ssh_cmd = self.cmds.get('ssh', None)
 
-        if ssh_cmd and self.ssh_user and self.ssh_host:
-            cmd = [ssh_cmd, '%s@%s' % (self.ssh_user, self.ssh_host), cmd_path]
+        if ssh_cmd and self.name:
+            if self.ssh_user:
+                cmd = [ssh_cmd, '%s@%s' % (self.ssh_user, self.name), cmd_path]
+            else:
+                cmd = [ssh_cmd, self.name, cmd_path]
         else:
             cmd = [cmd_path]
 
@@ -481,22 +483,6 @@ class ZFSSnap(object):
 
         raise ZFSSnapException('Timeout reached. Could not aquire lock.')
 
-    @staticmethod
-    def _parse_dst_name(name):
-        parsed = {
-            'ssh_user': None,
-            'ssh_host': None,
-            'dataset': None,
-        }
-
-        if '@' in name:
-            parsed['ssh_user'], tail = name.split('@', 1)
-            parsed['ssh_host'], parsed['dataset'] = tail.split(':', 1)
-        else:
-            parsed['dataset'] = name
-
-        return parsed
-
     def execute_policy(self, policy, reset=False):
         policy_config = self.config.get_policy(policy)
         local_host = Host(cmds=self.config.get_cmds())
@@ -510,16 +496,15 @@ class ZFSSnap(object):
                 datasets=local_host.get_filesystems(policy_config.get('include', None),
                                                     policy_config.get('exclude', None)))
         elif policy_config['type'] == 'replication':
-            dst_params = self._parse_dst_name(policy_config['destination'])
-            dst_host = Host(ssh_user=dst_params['ssh_user'],
-                            ssh_host=dst_params['ssh_host'],
-                            cmds=policy_config.get('destination_cmds', None))
-            dst_dataset = Dataset(dst_host, dst_params['dataset'])
+            dst_host = Host(ssh_user=policy_config['destination'].get('ssh_user', None),
+                            name=policy_config['destination'].get('host', None),
+                            cmds=policy_config['destination'].get('cmds', None))
+            dst_dataset = Dataset(dst_host, policy_config['destination']['dataset'])
 
             self.replicate(
                 label=policy,
                 reset=reset,
-                src_dataset=local_host.get_filesystem(policy_config['source']),
+                src_dataset=local_host.get_filesystem(policy_config['source']['dataset']),
                 dst_dataset=dst_dataset)
 
     def replicate(self, label, src_dataset, dst_dataset, reset=False):

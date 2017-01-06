@@ -45,14 +45,20 @@ policies:
     recursive: yes
 
   replicate-vms:
-    # Valid destination syntaxes are
-    # - local destination: <dataset>
-    # - remote destination: <ssh_user>@<destination_host>:<dataset>
-    # The dataset _must_ be unused, preferable not even created, as zfssnap 
+    # The dataset _must_ be unused, preferable not even created, as zfssnap
     # will ensure it is looking like the source, and even destroying the remote
     # dataset recursively if --reset is given, to ensure compliance.
     type: replication
-    source: 'pool-1/vms-1'
-    destination: 'root@remote:pool-2/backup/vms-1'
-    destination_cmds:
-      zfs: /sbin/zfs
+    source:
+      dataset: 'pool-1/vms-1'
+    destination:
+      dataset: 'pool-2/backup/vms-1'
+
+      # Leave unset if local destination dataset. Not needed if the remote user
+      # is the same as the user running the script.
+      ssh_user: root
+
+      # Leave unset if local destination dataset.
+      host: remotehost
+      cmds:
+        zfs: /sbin/zfs
