@@ -106,6 +106,8 @@ class Snapshot(object):
         args.append(self.name)
         cmd = self.host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
+        self._properties[ZFSSNAP_LABEL] = label
+        self._properties[ZFSSNAP_VERSION] = VERSION
 
     def destroy(self, recursive=False):
         self.logger.info('Destroying snapshot %s (label: %s)', self.name, self.label)
@@ -149,6 +151,10 @@ class Snapshot(object):
 
         return self._version
 
+    @version.setter
+    def version(self, value):
+        self.set_property(ZFSSNAP_VERSION, value)
+
     @property
     def label(self):
         zfs_property = ZFSSNAP_LABEL
@@ -157,6 +163,10 @@ class Snapshot(object):
             zfs_property = 'zol:zfssnap:label'
 
         return self.get_property(zfs_property)
+
+    @label.setter
+    def label(self, value):
+        self.set_property(ZFSSNAP_LABEL, value)
 
     def get_property(self, zfs_property):
         return self._properties.get(zfs_property, None)
@@ -318,7 +328,15 @@ class Dataset(object):
             snapshot.repl_status = 'success'
 
             # For completeness also set repl_status to success on destination.
-            dst_dataset.get_snapshot(snapshot.snapshot_name).repl_status = 'success'
+            dst_snapshot = dst_dataset.get_snapshot(snapshot.snapshot_name)
+            dst_snapshot.repl_status = snapshot.repl_status
+
+            # Workaround for missing properties on initial sync. A fix is
+            # supposed to come with ZoL 0.7.0:
+            # https://github.com/zfsonlinux/zfs/commit/48f783de792727c26f43983155bac057c296e44d
+            if not previous_snapshot:
+                dst_snapshot.version = snapshot.version
+                dst_snapshot.label = snapshot.label
 
             self.cleanup_repl_snapshots(label=label)
         else:
@@ -422,8 +440,8 @@ class Host(object):
 
             for pattern in exclude_filters:
                 if fnmatch.fnmatch(name, pattern):
-                    self.logger.info('\'%s\' is excluded by pattern \'%s\'',
-                                     name, pattern)
+                    self.logger.debug('\'%s\' is excluded by pattern \'%s\'',
+                                      name, pattern)
                     exclude = True
                     break
 
@@ -483,34 +501,60 @@ class ZFSSnap(object):
 
         raise ZFSSnapException('Timeout reached. Could not aquire lock.')
 
-    def execute_policy(self, policy, reset=False):
-        sleep = 1
-        self.logger.debug('Sleeping %ss to avoid potential snapshot name '
-                          'collisions due to matching timestamps', sleep)
-        time.sleep(sleep)
+    def execute_policy(self, policy, mode='normal'):
+        if mode == 'reset':
+            reset = True
+        else:
+            reset = False
+
+        if mode == 'normal':
+            sleep = 1
+            self.logger.debug('Sleeping %ss to avoid potential snapshot name '
+                              'collisions due to matching timestamps', sleep)
+            time.sleep(sleep)
 
         policy_config = self.config.get_policy(policy)
         local_host = Host(cmds=self.config.get_cmds())
 
         if policy_config['type'] == 'snapshot':
-            self.snapshot(
-                keep=policy_config['keep'],
-                label=policy,
-                reset=reset,
-                recursive=policy_config.get('recursive', False),
-                datasets=local_host.get_filesystems(policy_config.get('include', None),
-                                                    policy_config.get('exclude', None)))
+            datasets = local_host.get_filesystems(policy_config.get('include', None),
+                                                  policy_config.get('exclude', None))
+
+            if reset or mode == 'normal':
+                self.snapshot(
+                    keep=policy_config['keep'],
+                    label=policy,
+                    reset=reset,
+                    recursive=policy_config.get('recursive', False),
+                    datasets=datasets)
+            elif mode == 'list':
+                print('SNAPSHOTS')
+                snapshots = self.get_snapshots(label=policy, datasets=datasets)
+                self.print_snapshots(snapshots)
+
         elif policy_config['type'] == 'replication':
             dst_host = Host(ssh_user=policy_config['destination'].get('ssh_user', None),
                             name=policy_config['destination'].get('host', None),
                             cmds=policy_config['destination'].get('cmds', None))
             dst_dataset = Dataset(dst_host, policy_config['destination']['dataset'])
+            src_dataset = local_host.get_filesystem(policy_config['source']['dataset'])
 
-            self.replicate(
-                label=policy,
-                reset=reset,
-                src_dataset=local_host.get_filesystem(policy_config['source']['dataset']),
-                dst_dataset=dst_dataset)
+            if reset or mode == 'normal':
+                self.replicate(
+                    label=policy,
+                    reset=reset,
+                    src_dataset=src_dataset,
+                    dst_dataset=dst_dataset)
+            elif mode == 'list':
+                src_snapshots = self.get_snapshots(label=policy,
+                                                   datasets=[src_dataset])
+                print('SOURCE SNAPSHOTS')
+                self.print_snapshots(src_snapshots)
+
+                dst_snapshots = self.get_snapshots(label=policy,
+                                                   datasets=[dst_dataset])
+                print('\nDESTINATION SNAPSHOTS')
+                self.print_snapshots(dst_snapshots)
 
     def replicate(self, label, src_dataset, dst_dataset, reset=False):
         if reset:
@@ -539,18 +583,36 @@ class ZFSSnap(object):
 
             dataset.cleanup_snapshots(keep=keep, label=label, recursive=recursive)
 
+    def get_snapshots(self, label, datasets=None):
+        if datasets is None:
+            datasets = []
+
+        for dataset in datasets:
+            for snapshot in dataset.get_snapshots(label=label):
+                yield snapshot
+
+    def print_snapshots(self, snapshots):
+        for snapshot in snapshots:
+            print(snapshot.name)
+
 
 def main():
     parser = argparse.ArgumentParser(
         description='Automatic snapshotting and replication for ZFS on Linux')
 
     mutex_group = parser.add_mutually_exclusive_group(required=True)
-    mutex_group.add_argument(
-        '--version', action='store_true', help='Print version and exit')
-    mutex_group.add_argument(
-        '--policy', help='Select policy')
-    parser.add_argument(
-        '--quiet', action='store_true', help='Suppress output from script')
+    mutex_group.add_argument('--version', action='store_true',
+                             help='Print version and exit')
+    mutex_group.add_argument('--policy', help='Select policy')
+
+    mutex_group2 = parser.add_mutually_exclusive_group()
+    mutex_group2.add_argument('--reset', action='store_true',
+        help='Remove all policy snapshots or reinitialize replication')
+    mutex_group2.add_argument('--list', action='store_true',
+                              help='List all policy snapshots')
+
+    parser.add_argument('--quiet', action='store_true',
+                        help='Suppress output from script')
     parser.add_argument(
         '--log-level',
         choices=[
@@ -561,13 +623,10 @@ def main():
             'DEBUG'
         ],
         default='INFO', help='Set log level for console output. Default: INFO')
-    parser.add_argument(
-        '--config', metavar='PATH', help='Path to configuration file')
-    parser.add_argument(
-        '--reset', action='store_true',
-        help='Remove all policy snapshots or reinitialize replication')
-    parser.add_argument(
-        '--lockfile', metavar='PATH', help='Override path to lockfile')
+    parser.add_argument('--config', metavar='PATH',
+                        help='Path to configuration file')
+    parser.add_argument('--lockfile', metavar='PATH',
+                        help='Override path to lockfile')
     args = parser.parse_args()
 
     if args.version:
@@ -584,9 +643,16 @@ def main():
         ch.setFormatter(fmt)
         logger.addHandler(ch)
 
+    if args.reset:
+        mode = 'reset'
+    elif args.list:
+        mode = 'list'
+    else:
+        mode = 'normal'
+
     try:
         with ZFSSnap(config=args.config, lockfile=args.lockfile) as z:
-            z.execute_policy(args.policy, args.reset)
+            z.execute_policy(args.policy, mode)
     except ZFSSnapException:
         sys.exit(10)
     except ReplicationException:
