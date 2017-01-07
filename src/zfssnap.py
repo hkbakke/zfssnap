@@ -106,8 +106,7 @@ class Snapshot(object):
         args.append(self.name)
         cmd = self.host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
-        self._properties[ZFSSNAP_LABEL] = label
-        self._properties[ZFSSNAP_VERSION] = VERSION
+        self.get_properties(refresh=True)
 
     def destroy(self, recursive=False):
         self.logger.info('Destroying snapshot %s (label: %s)', self.name, self.label)
@@ -168,8 +167,33 @@ class Snapshot(object):
     def label(self, value):
         self.set_property(ZFSSNAP_LABEL, value)
 
+    def get_properties(self, refresh=False):
+        if refresh:
+            self._properties = {}
+
+        if not self._properties:
+            args = [
+                'get', 'all',
+                '-H',
+                '-p',
+                '-o', 'property,value',
+                self.name
+            ]
+            cmd = self.host.get_cmd('zfs', args)
+            output = subprocess.check_output(cmd)
+
+            for line in output.decode('utf8').split('\n'):
+                if not line.strip():
+                    continue
+
+                zfs_property, value = line.split('\t')
+                self._properties[zfs_property] = autotype(value)
+
+        return self._properties
+
     def get_property(self, zfs_property):
-        return self._properties.get(zfs_property, None)
+        properties = self.get_properties()
+        return properties.get(zfs_property, None)
 
     def set_property(self, name, value):
         args = [
@@ -256,7 +280,7 @@ class Dataset(object):
             if label and snapshot.label != label:
                 continue
 
-            yield Snapshot(self.host, name, properties=properties)
+            yield snapshot
 
     def get_snapshot(self, snapshot_name):
         for snapshot in self.get_snapshots():
