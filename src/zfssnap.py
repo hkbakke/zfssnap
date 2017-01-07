@@ -250,10 +250,7 @@ class Dataset(object):
 
     @property
     def exists(self):
-        if self._host.get_filesystem(self.name):
-            return True
-        else:
-            return False
+        return bool(self._host.get_filesystem(self.name))
 
     def get_host(self):
         return self._host
@@ -323,7 +320,7 @@ class Dataset(object):
         ]
 
         send_cmd = self._host.get_cmd('zfs', send_args)
-        receive_cmd = dst_dataset._host.get_cmd('zfs', receive_args)
+        receive_cmd = dst_dataset.get_host().get_cmd('zfs', receive_args)
         self.logger.debug('Replicate cmd: \'%s | %s\'', ' '.join(send_cmd),
                           ' '.join(receive_cmd))
 
@@ -547,10 +544,7 @@ class ZFSSnap(object):
         raise ZFSSnapException('Timeout reached. Could not aquire lock.')
 
     def execute_policy(self, policy, mode='normal'):
-        if mode == 'reset':
-            reset = True
-        else:
-            reset = False
+        reset = bool(mode == 'reset')
 
         if mode == 'normal':
             sleep = 1
@@ -562,8 +556,13 @@ class ZFSSnap(object):
         local_host = Host(cmds=self.config.get_cmds())
 
         if policy_config['type'] == 'snapshot':
-            datasets = local_host.get_filesystems(policy_config.get('include', None),
-                                                  policy_config.get('exclude', None))
+            # Store the dataset in a list as the iterator is consumed several
+            # times below.
+            datasets = [
+                d for d in local_host.get_filesystems(
+                    include=policy_config.get('include', None),
+                    exclude=policy_config.get('exclude', None))
+            ]
 
             if reset or mode == 'normal':
                 self.snapshot(
@@ -609,7 +608,7 @@ class ZFSSnap(object):
                     dst_snapshots = self.get_snapshots(label=policy,
                                                        datasets=[dst_dataset])
                 else:
-                    dst_snapshots = []
+                    dst_snapshots = iter([])
 
                 print('\nDESTINATION SNAPSHOTS')
                 self.print_snapshots(dst_snapshots)
@@ -641,7 +640,8 @@ class ZFSSnap(object):
 
             dataset.cleanup_snapshots(keep=keep, label=label, recursive=recursive)
 
-    def get_snapshots(self, label, datasets=None):
+    @staticmethod
+    def get_snapshots(label=None, datasets=None):
         if datasets is None:
             datasets = []
 
@@ -649,13 +649,16 @@ class ZFSSnap(object):
             for snapshot in dataset.get_snapshots(label=label):
                 yield snapshot
 
-    def print_snapshots(self, snapshots):
+    @staticmethod
+    def print_snapshots(snapshots):
         for snapshot in snapshots:
             print(snapshot.location)
 
-    def print_datasets(self, datasets):
+    @staticmethod
+    def print_datasets(datasets):
         for dataset in datasets:
             print(dataset.location)
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -667,7 +670,8 @@ def main():
     mutex_group.add_argument('--policy', help='Select policy')
 
     mutex_group2 = parser.add_mutually_exclusive_group()
-    mutex_group2.add_argument('--reset', action='store_true',
+    mutex_group2.add_argument(
+        '--reset', action='store_true',
         help='Remove all policy snapshots or reinitialize replication')
     mutex_group2.add_argument('--list', action='store_true',
                               help='List all policy snapshots')
