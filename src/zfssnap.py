@@ -449,7 +449,13 @@ class Host(object):
         self.logger.debug('Command: %s', ' '.join(cmd))
         return cmd
 
-    def get_filesystems(self, include_filters=None, exclude_filters=None):
+    def get_filesystems(self, include=None, exclude=None):
+        if include is None:
+            include = []
+
+        if exclude is None:
+            exclude = []
+
         args = [
             'list',
             '-H',
@@ -460,30 +466,24 @@ class Host(object):
         cmd = self.get_cmd('zfs', args)
         output = subprocess.check_output(cmd)
 
-        if include_filters is None:
-            include_filters = []
-
-        if exclude_filters is None:
-            exclude_filters = []
-
         for name in output.decode('utf8').split('\n'):
-            exclude = False
+            exclude_filesystem = False
 
             if not name.strip():
                 continue
 
-            for pattern in exclude_filters:
+            for pattern in exclude:
                 if fnmatch.fnmatch(name, pattern):
                     self.logger.debug('\'%s\' is excluded by pattern \'%s\'',
                                       name, pattern)
-                    exclude = True
+                    exclude_filesystem = True
                     break
 
-            if exclude:
+            if exclude_filesystem:
                 continue
 
-            if include_filters:
-                for pattern in include_filters:
+            if include:
+                for pattern in include:
                     if fnmatch.fnmatch(name, pattern):
                         yield Dataset(host=self, name=name)
                         break
@@ -491,7 +491,18 @@ class Host(object):
                 yield Dataset(host=self, name=name)
 
     def get_filesystem(self, fs_name):
-        return next(self.get_filesystems([fs_name]), None)
+        first_fs = None
+
+        # This slightly convoluted way to return the first filesystem tries to
+        # err out early without having to fetch the entire filesystem list if
+        # e.g. '*' is provided as fs_name.
+        for fs in self.get_filesystems(include=[fs_name]):
+            if first_fs:
+                raise HostException('More than one dataset matches %s' % fs_name)
+
+            first_fs = fs
+
+        return first_fs
 
 
 class ZFSSnap(object):
