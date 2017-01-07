@@ -25,8 +25,8 @@ policies:
   monthly:
     type: snapshot
     include:
-      - 'pool-1/prod-1'
-      - 'pool-1/prod-2'
+      - 'pool-1*'
+      - 'pool-2*'
     exclude:
       - 'pool-1/backup'
       - 'pool-2/backup'
@@ -34,8 +34,7 @@ policies:
 
   recursive-1:
     # Here we are doing recursive snapshots on the top level only, excluding
-    # all nested datasets. Another more manual way is to just define the
-    # top level datasets in the include and leaving exclude unset
+    # all nested datasets.
     type: snapshot
     include:
       - '*'
@@ -45,9 +44,9 @@ policies:
     recursive: yes
 
   replicate-vms:
-    # The dataset _must_ be unused, preferable not even created, as zfssnap
-    # will ensure it is looking like the source, and even destroying the remote
-    # dataset recursively if --reset is given, to ensure compliance.
+    # The destination dataset _must_ be unused, preferable not even created,
+    # as zfssnap will ensure it is looking like the source, and even destroying
+    # the remote dataset recursively if --reset is given, to ensure compliance.
     type: replication
     source:
       dataset: 'pool-1/vms-1'

@@ -40,6 +40,9 @@ Remove all snapshots for a policy or re-initialize a replication policy
 
     ./zfssnap.py --policy hourly --reset
 
+List all snapshots belonging to a policy
+
+    ./zfssnap.py --policy hourly --list
 List all options
 
     ./zfssnap.py --help
