@@ -79,7 +79,7 @@ class Snapshot(object):
         self.logger = logging.getLogger(__name__)
         self.name = name
         self.dataset_name, self.snapshot_name = name.split('@')
-        self.host = host
+        self._host = host
         self._snapshot_name = None
         self._version = None
 
@@ -104,9 +104,16 @@ class Snapshot(object):
             args.append('-r')
 
         args.append(self.name)
-        cmd = self.host.get_cmd('zfs', args)
+        cmd = self._host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
         self.get_properties(refresh=True)
+
+    @property
+    def location(self):
+        if self._host.name:
+            return '%s: %s' % (self._host.name, self.name)
+        else:
+            return self.name
 
     def destroy(self, recursive=False):
         self.logger.info('Destroying snapshot %s (label: %s)', self.name, self.label)
@@ -116,7 +123,7 @@ class Snapshot(object):
             args.append('-r')
 
         args.append(self.name)
-        cmd = self.host.get_cmd('zfs', args)
+        cmd = self._host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
 
     @property
@@ -179,7 +186,7 @@ class Snapshot(object):
                 '-o', 'property,value',
                 self.name
             ]
-            cmd = self.host.get_cmd('zfs', args)
+            cmd = self._host.get_cmd('zfs', args)
             output = subprocess.check_output(cmd)
 
             for line in output.decode('utf8').split('\n'):
@@ -201,7 +208,7 @@ class Snapshot(object):
             '%s=%s' % (name, value),
             self.name
         ]
-        cmd = self.host.get_cmd('zfs', args)
+        cmd = self._host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
         self._properties[name] = value
 
@@ -209,13 +216,13 @@ class Snapshot(object):
 class Dataset(object):
     def __init__(self, host, name):
         self.name = name
-        self.host = host
+        self._host = host
         self.logger = logging.getLogger(__name__)
 
     @property
     def location(self):
-        if self.host.name:
-            return '%s:%s' % (self.host.name, self.name)
+        if self._host.name:
+            return '%s: %s' % (self._host.name, self.name)
         else:
             return self.name
 
@@ -238,15 +245,18 @@ class Dataset(object):
             args.append('-r')
 
         args.append(self.name)
-        cmd = self.host.get_cmd('zfs', args)
+        cmd = self._host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
 
     @property
     def exists(self):
-        if self.host.get_filesystem(self.name):
+        if self._host.get_filesystem(self.name):
             return True
         else:
             return False
+
+    def get_host(self):
+        return self._host
 
     def get_snapshots(self, label=None):
         snapshots = {}
@@ -260,7 +270,7 @@ class Dataset(object):
             '-t', 'snapshot',
             self.name
         ]
-        cmd = self.host.get_cmd('zfs', args)
+        cmd = self._host.get_cmd('zfs', args)
         output = subprocess.check_output(cmd)
 
         for line in output.decode('utf8').split('\n'):
@@ -275,7 +285,7 @@ class Dataset(object):
             snapshots[name][zfs_property] = autotype(value)
 
         for name, properties in snapshots.items():
-            snapshot = Snapshot(self.host, name, properties=properties)
+            snapshot = Snapshot(self._host, name, properties=properties)
 
             if label and snapshot.label != label:
                 continue
@@ -312,8 +322,8 @@ class Dataset(object):
             dst_dataset.name
         ]
 
-        send_cmd = self.host.get_cmd('zfs', send_args)
-        receive_cmd = dst_dataset.host.get_cmd('zfs', receive_args)
+        send_cmd = self._host.get_cmd('zfs', send_args)
+        receive_cmd = dst_dataset._host.get_cmd('zfs', receive_args)
         self.logger.debug('Replicate cmd: \'%s | %s\'', ' '.join(send_cmd),
                           ' '.join(receive_cmd))
 
@@ -372,7 +382,7 @@ class Dataset(object):
 
         timestamp = ts.strftime('%Y%m%dT%H%M%SZ')
         snapshot_name = '%s@zfssnap_%s' % (self.name, timestamp)
-        snapshot = Snapshot(self.host, snapshot_name)
+        snapshot = Snapshot(self._host, snapshot_name)
         snapshot.create(label=label, recursive=recursive)
         return snapshot
 
@@ -552,7 +562,10 @@ class ZFSSnap(object):
                     recursive=policy_config.get('recursive', False),
                     datasets=datasets)
             elif mode == 'list':
-                print('SNAPSHOTS')
+                print('DATASETS')
+                self.print_datasets(datasets)
+
+                print('\nSNAPSHOTS')
                 snapshots = self.get_snapshots(label=policy, datasets=datasets)
                 self.print_snapshots(snapshots)
 
@@ -570,13 +583,23 @@ class ZFSSnap(object):
                     src_dataset=src_dataset,
                     dst_dataset=dst_dataset)
             elif mode == 'list':
+                print('SOURCE DATASET')
+                self.print_datasets([src_dataset])
+
+                print('\nDESTINATION DATASET')
+                self.print_datasets([dst_dataset])
+
                 src_snapshots = self.get_snapshots(label=policy,
                                                    datasets=[src_dataset])
-                print('SOURCE SNAPSHOTS')
+                print('\nSOURCE SNAPSHOTS')
                 self.print_snapshots(src_snapshots)
 
-                dst_snapshots = self.get_snapshots(label=policy,
-                                                   datasets=[dst_dataset])
+                if dst_dataset.exists:
+                    dst_snapshots = self.get_snapshots(label=policy,
+                                                       datasets=[dst_dataset])
+                else:
+                    dst_snapshots = []
+
                 print('\nDESTINATION SNAPSHOTS')
                 self.print_snapshots(dst_snapshots)
 
@@ -617,8 +640,11 @@ class ZFSSnap(object):
 
     def print_snapshots(self, snapshots):
         for snapshot in snapshots:
-            print(snapshot.name)
+            print(snapshot.location)
 
+    def print_datasets(self, datasets):
+        for dataset in datasets:
+            print(dataset.location)
 
 def main():
     parser = argparse.ArgumentParser(
