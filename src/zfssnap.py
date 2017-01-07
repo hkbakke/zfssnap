@@ -508,13 +508,14 @@ class Host(object):
 
 
 class ZFSSnap(object):
-    def __init__(self, config=None, lockfile=None):
+    def __init__(self, config=None, lockfile=None, lock=True):
         self.logger = logging.getLogger(__name__)
 
         # The lock file object needs to be at class level for not to be
         # garbage collected after the _aquire_lock function has finished.
-        self._lock_f = None
-        self._aquire_lock(lockfile)
+        if lock:
+            self._lock_f = None
+            self._aquire_lock(lockfile)
 
         self.config = Config(config)
 
@@ -715,13 +716,16 @@ def main():
 
     if args.reset:
         mode = 'reset'
+        lock = True
     elif args.list:
         mode = 'list'
+        lock = False
     else:
         mode = 'normal'
+        lock = True
 
     try:
-        with ZFSSnap(config=args.config, lockfile=args.lockfile) as z:
+        with ZFSSnap(config=args.config, lockfile=args.lockfile, lock=lock) as z:
             z.execute_policy(args.policy, mode)
     except ZFSSnapException:
         sys.exit(10)
