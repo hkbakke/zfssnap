@@ -82,10 +82,9 @@ class Snapshot(object):
         self._host = host
         self._snapshot_name = None
         self._version = None
+        self._properties = {}
 
-        if properties is None:
-            self._properties = dict()
-        else:
+        if properties:
             self._properties = properties
 
     def create(self, label, recursive=False):
@@ -106,7 +105,8 @@ class Snapshot(object):
         args.append(self.name)
         cmd = self._host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
-        self.get_properties(refresh=True)
+        self._properties[ZFSSNAP_LABEL] = label
+        self._properties[ZFSSNAP_VERSION] = VERSION
 
     @property
     def location(self):
@@ -193,14 +193,18 @@ class Snapshot(object):
                 if not line.strip():
                     continue
 
-                zfs_property, value = line.split('\t')
-                self._properties[zfs_property] = autotype(value)
+                name, value = line.split('\t')
+                self._properties[name] = autotype(value)
 
         return self._properties
 
-    def get_property(self, zfs_property):
-        properties = self.get_properties()
-        return properties.get(zfs_property, None)
+    def get_property(self, name):
+        value = self.get_properties().get(name, None)
+
+        if not value:
+            value = self.get_properties(refresh=True).get(name, None)
+
+        return value
 
     def set_property(self, name, value):
         args = [
@@ -401,6 +405,7 @@ class Dataset(object):
 
         for snapshot in sorted(snapshots, key=attrgetter('datetime')):
             snapshot.destroy(recursive)
+
 
 class Host(object):
     def __init__(self, ssh_user=None, name=None, cmds=None):
