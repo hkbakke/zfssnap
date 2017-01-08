@@ -260,38 +260,7 @@ class Dataset(object):
         return self._host
 
     def get_snapshots(self, label=None):
-        snapshots = {}
-
-        args = [
-            'get', 'all',
-            '-H',
-            '-p',
-            '-o', 'name,property,value',
-            '-d', '1',
-            '-t', 'snapshot',
-            self.name
-        ]
-        cmd = self._host.get_cmd('zfs', args)
-        output = subprocess.check_output(cmd)
-
-        for line in output.decode('utf8').split('\n'):
-            if not line.strip():
-                continue
-
-            name, zfs_property, value = line.split('\t')
-
-            if name not in snapshots:
-                snapshots[name] = {}
-
-            snapshots[name][zfs_property] = autotype(value)
-
-        for name, properties in snapshots.items():
-            snapshot = Snapshot(self._host, name, properties=properties)
-
-            if label and snapshot.label != label:
-                continue
-
-            yield snapshot
+        return self._host.get_snapshots(label=label, dataset=self)
 
     def get_snapshot(self, snapshot_name):
         for snapshot in self.get_snapshots():
@@ -491,6 +460,45 @@ class Host(object):
                         break
             else:
                 yield Dataset(host=self, name=name)
+
+    def get_snapshots(self, dataset=None, label=None):
+        snapshots = {}
+
+        args = [
+            'get', 'all',
+            '-H',
+            '-p',
+            '-o', 'name,property,value',
+            '-t', 'snapshot',
+        ]
+
+        if dataset:
+            args.extend([
+                '-d', '1',
+                dataset.name
+            ])
+
+        cmd = self.get_cmd('zfs', args)
+        output = subprocess.check_output(cmd)
+
+        for line in output.decode('utf8').split('\n'):
+            if not line.strip():
+                continue
+
+            name, zfs_property, value = line.split('\t')
+
+            if name not in snapshots:
+                snapshots[name] = {}
+
+            snapshots[name][zfs_property] = autotype(value)
+
+        for name, properties in snapshots.items():
+            snapshot = Snapshot(self, name, properties=properties)
+
+            if label and snapshot.label != label:
+                continue
+
+            yield snapshot
 
     def get_filesystem(self, fs_name):
         first_fs = None
