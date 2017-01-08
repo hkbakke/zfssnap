@@ -176,28 +176,29 @@ class Snapshot(object):
     def label(self, value):
         self.set_property(ZFSSNAP_LABEL, value)
 
+    def refresh_properties(self):
+        self.logger.debug('Refreshing zfs properties for %s', self.name)
+        self._properties = {}
+        args = [
+            'get', 'all',
+            '-H',
+            '-p',
+            '-o', 'property,value',
+            self.name
+        ]
+        cmd = self._host.get_cmd('zfs', args)
+        output = subprocess.check_output(cmd)
+
+        for line in output.decode('utf8').split('\n'):
+            if not line.strip():
+                continue
+
+            name, value = line.split('\t')
+            self._properties[name] = autotype(value)
+
     def get_properties(self, refresh=False):
         if refresh:
-            self._properties = {}
-
-        if not self._properties:
-            self.logger.debug('Refreshing zfs properties for %s', self.name)
-            args = [
-                'get', 'all',
-                '-H',
-                '-p',
-                '-o', 'property,value',
-                self.name
-            ]
-            cmd = self._host.get_cmd('zfs', args)
-            output = subprocess.check_output(cmd)
-
-            for line in output.decode('utf8').split('\n'):
-                if not line.strip():
-                    continue
-
-                name, value = line.split('\t')
-                self._properties[name] = autotype(value)
+            self.refresh_properties()
 
         return self._properties
 
