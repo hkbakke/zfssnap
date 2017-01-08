@@ -95,16 +95,7 @@ class Snapshot(object):
             return self.name
 
     def destroy(self, recursive=False):
-        self.logger.info('Destroying snapshot %s (label: %s)', self.name, self.label)
-        args = ['destroy']
-
-        if recursive:
-            args.append('-r')
-
-        args.append(self.name)
-        cmd = self._host.get_cmd('zfs', args)
-        subprocess.check_call(cmd)
-        self._host.remove_snapshot(self)
+        self._host.destroy_snapshot(self, recursive)
 
     @property
     def datetime(self):
@@ -480,7 +471,16 @@ class Host(object):
 
         return snapshot
 
-    def remove_snapshot(self, snapshot):
+    def destroy_snapshot(self, snapshot, recursive=False):
+        self.logger.info('Destroying dataset %s', snapshot.name)
+        args = ['destroy']
+
+        if recursive:
+            args.append('-r')
+
+        args.append(snapshot.name)
+        cmd = self.get_cmd('zfs', args)
+        subprocess.check_call(cmd)
         self._snapshots.remove(snapshot)
 
     def refresh_snapshots(self):
