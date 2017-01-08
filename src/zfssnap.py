@@ -255,20 +255,17 @@ class Dataset(object):
         previous_snapshot = self.get_latest_repl_snapshot(label)
         snapshot = self.create_snapshot(label=label, recursive=True)
 
-        if previous_snapshot:
-            send_args = [
-                'send',
-                '-R',
-                '-I', '@%s' % previous_snapshot.snapshot_name,
-                snapshot.name
-            ]
-        else:
-            send_args = [
-                'send',
-                '-R',
-                snapshot.name
-            ]
+        send_args = [
+            'send',
+            '-R',
+        ]
 
+        if previous_snapshot:
+            send_args.extend([
+                '-I', '@%s' % previous_snapshot.snapshot_name,
+            ])
+
+        send_args.append(snapshot.name)
         receive_args = [
             'receive',
             '-F',
