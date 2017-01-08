@@ -254,30 +254,18 @@ class Dataset(object):
     def replicate(self, dst_dataset, label):
         previous_snapshot = self.get_latest_repl_snapshot(label)
         snapshot = self.create_snapshot(label=label, recursive=True)
-
-        send_args = [
-            'send',
-            '-R',
-        ]
+        send_args = ['send', '-R']
 
         if previous_snapshot:
-            send_args.extend([
-                '-I', '@%s' % previous_snapshot.snapshot_name,
-            ])
+            send_args.extend(['-I', '@%s' % previous_snapshot.snapshot_name])
 
         send_args.append(snapshot.name)
-        receive_args = [
-            'receive',
-            '-F',
-            '-v',
-            dst_dataset.name
-        ]
-
+        receive_args = ['receive', '-F', '-v', dst_dataset.name]
         send_cmd = self._host.get_cmd('zfs', send_args)
         receive_cmd = dst_dataset.get_host().get_cmd('zfs', receive_args)
+
         self.logger.debug('Replicate cmd: \'%s | %s\'', ' '.join(send_cmd),
                           ' '.join(receive_cmd))
-
         self.logger.info('Replicating %s to %s', self.location,
                          dst_dataset.location)
         send = subprocess.Popen(send_cmd, stdout=subprocess.PIPE)
