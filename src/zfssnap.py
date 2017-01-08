@@ -107,7 +107,7 @@ class Snapshot(object):
         subprocess.check_call(cmd)
         self._properties[ZFSSNAP_LABEL] = label
         self._properties[ZFSSNAP_VERSION] = VERSION
-        self._host._snapshots.append(self)
+        self._host.add_snapshot(self)
 
     @property
     def location(self):
@@ -126,7 +126,7 @@ class Snapshot(object):
         args.append(self.name)
         cmd = self._host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
-        self._host._snapshots.remove(self)
+        self._host.remove_snapshot(self)
 
     @property
     def datetime(self):
@@ -467,6 +467,12 @@ class Host(object):
                         break
             else:
                 yield Dataset(host=self, name=name)
+
+    def add_snapshot(self, snapshot):
+        self._snapshots.append(snapshot)
+
+    def remove_snapshot(self, snapshot):
+        self._snapshots.remove(snapshot)
 
     def get_snapshots(self, dataset=None, label=None, name=None, refresh=False):
         if refresh or not self._snapshots_refreshed:
