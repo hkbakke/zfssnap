@@ -87,28 +87,6 @@ class Snapshot(object):
         if properties:
             self._properties = properties
 
-    def create(self, label, recursive=False):
-        self.logger.info('Creating snapshot %s (label: %s)', self.name, label)
-
-        if label == '-':
-            raise SnapshotException('\'%s\' is not a valid label' % label)
-
-        args = [
-            'snapshot',
-            '-o', '%s=%s' % (ZFSSNAP_LABEL, label),
-            '-o', '%s=%s' % (ZFSSNAP_VERSION, VERSION)
-        ]
-
-        if recursive:
-            args.append('-r')
-
-        args.append(self.name)
-        cmd = self._host.get_cmd('zfs', args)
-        subprocess.check_call(cmd)
-        self._properties[ZFSSNAP_LABEL] = label
-        self._properties[ZFSSNAP_VERSION] = VERSION
-        self._host.add_snapshot(self)
-
     @property
     def location(self):
         if self._host.name:
@@ -359,9 +337,9 @@ class Dataset(object):
             ts = datetime.utcnow()
 
         timestamp = ts.strftime('%Y%m%dT%H%M%SZ')
-        snapshot_name = '%s@zfssnap_%s' % (self.name, timestamp)
-        snapshot = Snapshot(self._host, snapshot_name)
-        snapshot.create(label=label, recursive=recursive)
+        name = '%s@zfssnap_%s' % (self.name, timestamp)
+        snapshot = self._host.create_snapshot(name=name, label=label,
+                                              recursive=recursive)
         return snapshot
 
     def cleanup_repl_snapshots(self, label=None, keep=1):
@@ -471,8 +449,36 @@ class Host(object):
             else:
                 yield Dataset(host=self, name=name)
 
-    def add_snapshot(self, snapshot):
+    def create_snapshot(self, name, label, recursive=False):
+        self.logger.info('Creating snapshot %s (label: %s)', name, label)
+
+        if label == '-':
+            raise SnapshotException('\'%s\' is not a valid label' % label)
+
+        properties = {
+            ZFSSNAP_LABEL: label,
+            ZFSSNAP_VERSION: VERSION
+        }
+
+        args = [
+            'snapshot',
+        ]
+
+        for key, value in properties.items():
+            args.extend([
+                '-o', '%s=%s' % (key, value),
+            ])
+
+        if recursive:
+            args.append('-r')
+
+        args.append(name)
+        cmd = self.get_cmd('zfs', args)
+        subprocess.check_call(cmd)
+        snapshot = Snapshot(self, name, properties=properties)
         self._snapshots.append(snapshot)
+
+        return snapshot
 
     def remove_snapshot(self, snapshot):
         self._snapshots.remove(snapshot)
