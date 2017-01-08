@@ -349,13 +349,6 @@ class Dataset(object):
             dst_snapshot = dst_dataset.get_snapshot(snapshot.snapshot_name)
             dst_snapshot.repl_status = snapshot.repl_status
 
-            # Workaround for missing properties on initial sync. A fix is
-            # supposed to come with ZoL 0.7.0:
-            # https://github.com/zfsonlinux/zfs/commit/48f783de792727c26f43983155bac057c296e44d
-            if not previous_snapshot:
-                dst_snapshot.version = snapshot.version
-                dst_snapshot.label = snapshot.label
-
             self.cleanup_repl_snapshots(label=label)
         else:
             raise ReplicationException('Replication failed!')
