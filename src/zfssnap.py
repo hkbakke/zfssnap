@@ -473,6 +473,7 @@ class Host(object):
         self._snapshots = []
         snapshots = {}
         name_pattern = r'^.+@zfssnap_[0-9]{8}T[0-9]{6}Z$'
+        name_re = re.compile(name_pattern)
 
         args = [
             'get', 'all',
@@ -484,6 +485,7 @@ class Host(object):
 
         cmd = self.get_cmd('zfs', args)
         output = subprocess.check_output(cmd)
+        fast_skip = None
 
         for line in output.decode('utf8').split('\n'):
             if not line.strip():
@@ -491,8 +493,17 @@ class Host(object):
 
             name, zfs_property, value = line.split('\t')
 
+            # Avoid having to regex check name for every ZFS property
+            # if we know it's not a zfssnap snapshot.
+            if name == fast_skip:
+                continue
+
+            fast_skip = None
+
             # There is no point looking at snapshots not taken by zfssnap
-            if not re.match(name_pattern, name):
+            if not re.match(name_re, name):
+                self.logger.debug('%s is not a zfssnap snapshot. Skipping.', name)
+                fast_skip = name
                 continue
 
             if name not in snapshots:
