@@ -563,7 +563,7 @@ class ZFSSnap(object):
 
         # The lock file object needs to be at class level for not to be
         # garbage collected after the _aquire_lock function has finished.
-        self._lock_f = None
+        self._lock = None
 
         self.config = Config(config)
 
@@ -580,14 +580,14 @@ class ZFSSnap(object):
         if lockfile is None:
             lockfile = self.lockfile
 
-        self._lock_f = open(lockfile, 'w')
+        self._lock = open(lockfile, 'w')
         wait = 3
         timeout = 60
 
         while timeout > 0:
             try:
-                fcntl.lockf(self._lock_f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                self.logger.debug('Lock aquired.')
+                fcntl.lockf(self._lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self.logger.debug('Lock aquired')
                 return
             except OSError:
                 self.logger.info('zfssnap is already running. Waiting for '
@@ -596,6 +596,10 @@ class ZFSSnap(object):
                 time.sleep(wait)
 
         raise ZFSSnapException('Timeout reached. Could not aquire lock.')
+
+    def _release_lock(self):
+        fcntl.flock(self._lock, fcntl.LOCK_UN)
+        self.logger.debug('Lock released')
 
     def _run_snapshot_policy(self, policy, reset=False):
         if not reset:
@@ -741,6 +745,8 @@ class ZFSSnap(object):
         else:
             src_dataset.replicate(dst_dataset, label)
 
+        self._release_lock()
+
     def snapshot(self, keep, label, datasets=None, recursive=False, reset=False):
         if datasets is None:
             datasets = []
@@ -757,6 +763,8 @@ class ZFSSnap(object):
                 dataset.create_snapshot(label=label, recursive=recursive)
 
             dataset.cleanup_snapshots(keep=keep, label=label, recursive=recursive)
+
+        self._release_lock()
 
     @staticmethod
     def get_snapshots(label=None, datasets=None):
