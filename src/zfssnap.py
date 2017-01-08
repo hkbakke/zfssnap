@@ -88,7 +88,7 @@ class Snapshot(object):
             self._properties = properties
 
     def create(self, label, recursive=False):
-        self.logger.info('Creating snapshot %s', self.name)
+        self.logger.info('Creating snapshot %s (label: %s)', self.name, label)
 
         if label == '-':
             raise SnapshotException('\'%s\' is not a valid label' % label)
