@@ -476,46 +476,47 @@ class Host(object):
     def remove_snapshot(self, snapshot):
         self._snapshots.remove(snapshot)
 
+    def refresh_snapshots(self):
+        self.logger.debug('Refreshing snapshot list')
+        self._snapshots = []
+        snapshots = {}
+        name_pattern = r'^.+@zfssnap_[0-9]{8}T[0-9]{6}Z$'
+
+        args = [
+            'get', 'all',
+            '-H',
+            '-p',
+            '-o', 'name,property,value',
+            '-t', 'snapshot',
+        ]
+
+        cmd = self.get_cmd('zfs', args)
+        output = subprocess.check_output(cmd)
+
+        for line in output.decode('utf8').split('\n'):
+            if not line.strip():
+                continue
+
+            name, zfs_property, value = line.split('\t')
+
+            # There is no point looking at snapshots not taken by zfssnap
+            if not re.match(name_pattern, name):
+                continue
+
+            if name not in snapshots:
+                snapshots[name] = {}
+
+            snapshots[name][zfs_property] = autotype(value)
+
+        for name, properties in snapshots.items():
+            snapshot = Snapshot(self, name, properties=properties)
+            self._snapshots.append(snapshot)
+
+        self._snapshots_refreshed = True
+
     def get_snapshots(self, dataset=None, label=None, name=None, refresh=False):
         if refresh or not self._snapshots_refreshed:
-            self._snapshots = []
-
-        if not self._snapshots:
-            self.logger.debug('Refreshing snapshot list')
-            snapshots = {}
-            name_pattern = r'^.+@zfssnap_[0-9]{8}T[0-9]{6}Z$'
-
-            args = [
-                'get', 'all',
-                '-H',
-                '-p',
-                '-o', 'name,property,value',
-                '-t', 'snapshot',
-            ]
-
-            cmd = self.get_cmd('zfs', args)
-            output = subprocess.check_output(cmd)
-
-            for line in output.decode('utf8').split('\n'):
-                if not line.strip():
-                    continue
-
-                snapshot_name, zfs_property, value = line.split('\t')
-
-                # There is no point looking at snapshots not taken by zfssnap
-                if not re.match(name_pattern, snapshot_name):
-                    continue
-
-                if snapshot_name not in snapshots:
-                    snapshots[snapshot_name] = {}
-
-                snapshots[snapshot_name][zfs_property] = autotype(value)
-
-            for snapshot_name, properties in snapshots.items():
-                snapshot = Snapshot(self, snapshot_name, properties=properties)
-                self._snapshots.append(snapshot)
-
-            self._snapshots_refreshed = True
+            self.refresh_snapshots()
 
         for snapshot in self._snapshots:
             if dataset and snapshot.dataset_name != dataset.name:
