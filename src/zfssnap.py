@@ -490,6 +490,7 @@ class Host(object):
         if not self._snapshots:
             self.logger.debug('Refreshing snapshot list')
             snapshots = {}
+            name_pattern = r'^.+@zfssnap_[0-9]{8}T[0-9]{6}Z$'
 
             args = [
                 'get', 'all',
@@ -507,6 +508,10 @@ class Host(object):
                     continue
 
                 snapshot_name, zfs_property, value = line.split('\t')
+
+                # There is no point looking at snapshots not taken by zfssnap
+                if not re.match(name_pattern, snapshot_name):
+                    continue
 
                 if snapshot_name not in snapshots:
                     snapshots[snapshot_name] = {}
