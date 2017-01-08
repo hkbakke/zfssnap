@@ -146,7 +146,7 @@ class Snapshot(object):
         self.set_property(ZFSSNAP_LABEL, value)
 
     def _refresh_properties(self):
-        self.logger.debug('Refreshing zfs properties for %s', self.name)
+        self.logger.debug('Refreshing zfs properties cache for %s', self.name)
         self._properties = {}
         args = [
             'get', 'all',
@@ -484,7 +484,7 @@ class Host(object):
         self._snapshots.remove(snapshot)
 
     def _refresh_snapshots(self):
-        self.logger.debug('Refreshing snapshot list')
+        self.logger.debug('Refreshing snapshot cache')
         self._snapshots = []
         snapshots = {}
         name_pattern = r'^.+@zfssnap_[0-9]{8}T[0-9]{6}Z$'
