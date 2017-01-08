@@ -145,7 +145,7 @@ class Snapshot(object):
     def label(self, value):
         self.set_property(ZFSSNAP_LABEL, value)
 
-    def refresh_properties(self):
+    def _refresh_properties(self):
         self.logger.debug('Refreshing zfs properties for %s', self.name)
         self._properties = {}
         args = [
@@ -167,7 +167,7 @@ class Snapshot(object):
 
     def get_properties(self, refresh=False):
         if refresh:
-            self.refresh_properties()
+            self._refresh_properties()
 
         return self._properties
 
@@ -483,7 +483,7 @@ class Host(object):
         subprocess.check_call(cmd)
         self._snapshots.remove(snapshot)
 
-    def refresh_snapshots(self):
+    def _refresh_snapshots(self):
         self.logger.debug('Refreshing snapshot list')
         self._snapshots = []
         snapshots = {}
@@ -523,7 +523,7 @@ class Host(object):
 
     def get_snapshots(self, dataset=None, label=None, name=None, refresh=False):
         if refresh or not self._snapshots_refreshed:
-            self.refresh_snapshots()
+            self._refresh_snapshots()
 
         for snapshot in self._snapshots:
             if dataset and snapshot.dataset_name != dataset.name:
@@ -597,7 +597,7 @@ class ZFSSnap(object):
 
         raise ZFSSnapException('Timeout reached. Could not aquire lock.')
 
-    def run_snapshot_policy(self, policy, reset=False):
+    def _run_snapshot_policy(self, policy, reset=False):
         if not reset:
             sleep = 1
             self.logger.debug('Sleeping %ss to avoid potential snapshot name '
@@ -620,7 +620,7 @@ class ZFSSnap(object):
             recursive=policy_config.get('recursive', False),
             datasets=datasets)
 
-    def run_replication_policy(self, policy, reset=False):
+    def _run_replication_policy(self, policy, reset=False):
         if not reset:
             sleep = 1
             self.logger.debug('Sleeping %ss to avoid potential snapshot name '
@@ -645,7 +645,7 @@ class ZFSSnap(object):
             src_dataset=src_dataset,
             dst_dataset=dst_dataset)
 
-    def list_snapshot_policy(self, policy):
+    def _list_snapshot_policy(self, policy):
         policy_config = self.config.get_policy(policy)
 
         if policy_config['type'] != 'snapshot':
@@ -662,13 +662,13 @@ class ZFSSnap(object):
         ]
 
         print('DATASETS')
-        self.print_datasets(datasets)
+        self._print_datasets(datasets)
 
         print('\nSNAPSHOTS')
         snapshots = self.get_snapshots(label=policy, datasets=datasets)
-        self.print_snapshots(snapshots)
+        self._print_snapshots(snapshots)
 
-    def list_replication_policy(self, policy):
+    def _list_replication_policy(self, policy):
         policy_config = self.config.get_policy(policy)
 
         if policy_config['type'] != 'replication':
@@ -678,7 +678,7 @@ class ZFSSnap(object):
         src_host = Host(cmds=self.config.get_cmds())
         src_dataset = src_host.get_filesystem(policy_config['source']['dataset'])
         print('SOURCE DATASET')
-        self.print_datasets([src_dataset])
+        self._print_datasets([src_dataset])
 
         # Print destination datasets
         dst_host = Host(
@@ -687,12 +687,12 @@ class ZFSSnap(object):
             cmds=policy_config['destination'].get('cmds', None))
         dst_dataset = Dataset(dst_host, policy_config['destination']['dataset'])
         print('\nDESTINATION DATASET')
-        self.print_datasets([dst_dataset])
+        self._print_datasets([dst_dataset])
 
         # Print source snapshots
         src_snapshots = self.get_snapshots(label=policy, datasets=[src_dataset])
         print('\nSOURCE SNAPSHOTS')
-        self.print_snapshots(src_snapshots)
+        self._print_snapshots(src_snapshots)
 
         # Print destination snapshots
         if dst_dataset.exists:
@@ -701,27 +701,27 @@ class ZFSSnap(object):
             dst_snapshots = iter([])
 
         print('\nDESTINATION SNAPSHOTS')
-        self.print_snapshots(dst_snapshots)
+        self._print_snapshots(dst_snapshots)
 
     def execute_policy(self, policy, mode='normal'):
         policy_type = self.config.get_policy(policy)['type']
 
         if policy_type == 'snapshot':
             if mode == 'normal':
-                self.run_snapshot_policy(policy)
+                self._run_snapshot_policy(policy)
             elif mode == 'list':
-                self.list_snapshot_policy(policy)
+                self._list_snapshot_policy(policy)
             elif mode == 'reset':
-                self.run_snapshot_policy(policy, reset=True)
+                self._run_snapshot_policy(policy, reset=True)
             else:
                 raise ZFSSnapException('%s is not a valid mode' % mode)
         elif policy_type == 'replication':
             if mode == 'normal':
-                self.run_replication_policy(policy)
+                self._run_replication_policy(policy)
             elif mode == 'list':
-                self.list_replication_policy(policy)
+                self._list_replication_policy(policy)
             elif mode == 'reset':
-                self.run_replication_policy(policy, reset=True)
+                self._run_replication_policy(policy, reset=True)
             else:
                 raise ZFSSnapException('%s is not a valid mode' % mode)
         else:
@@ -768,12 +768,12 @@ class ZFSSnap(object):
                 yield snapshot
 
     @staticmethod
-    def print_snapshots(snapshots):
+    def _print_snapshots(snapshots):
         for snapshot in snapshots:
             print(snapshot.location)
 
     @staticmethod
-    def print_datasets(datasets):
+    def _print_datasets(datasets):
         for dataset in datasets:
             print(dataset.location)
 
