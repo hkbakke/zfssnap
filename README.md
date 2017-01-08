@@ -6,11 +6,16 @@ As ZFS properties are used to identify the snapshot label the snapshot names
 are compatible with the shadow_copy2 module in Samba for use with
 Previous Versions.
 
+It is made for the following purposes:
+* Manage automatic snapshoting
+* Manage dataset replication between network connected hosts
+* Manage file based replication between one-way connected or disconnected hosts
+
 ## Requirements
 * Tested on Debian Jessie and Stretch
 * ZFS on Linux packages
 * Python >= 3.4
-* python3-yaml
+* Python modules: yaml, scandir (Python < v3.5 only)
 
 ## ZFS properties used
 * `zfssnap:label=[str]`: Identifies the label of the snapshot.
