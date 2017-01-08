@@ -107,6 +107,7 @@ class Snapshot(object):
         subprocess.check_call(cmd)
         self._properties[ZFSSNAP_LABEL] = label
         self._properties[ZFSSNAP_VERSION] = VERSION
+        self._host._snapshots.append(self)
 
     @property
     def location(self):
@@ -125,6 +126,7 @@ class Snapshot(object):
         args.append(self.name)
         cmd = self._host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
+        self._host._snapshots.remove(self)
 
     @property
     def datetime(self):
@@ -262,10 +264,8 @@ class Dataset(object):
     def get_snapshots(self, label=None):
         return self._host.get_snapshots(label=label, dataset=self)
 
-    def get_snapshot(self, snapshot_name):
-        for snapshot in self.get_snapshots():
-            if snapshot.snapshot_name == snapshot_name:
-                return snapshot
+    def get_snapshot(self, name):
+        return self._host.get_snapshot(name=name)
 
     def replicate(self, dst_dataset, label):
         previous_snapshot = self.get_latest_repl_snapshot(label)
@@ -385,6 +385,8 @@ class Host(object):
         self.cmds = self._validate_cmds(cmds)
         self.ssh_user = ssh_user
         self.name = name
+        self._snapshots = []
+        self._snapshots_refreshed = False
 
     @staticmethod
     def _validate_cmds(cmds):
@@ -461,44 +463,63 @@ class Host(object):
             else:
                 yield Dataset(host=self, name=name)
 
-    def get_snapshots(self, dataset=None, label=None):
-        snapshots = {}
+    def get_snapshots(self, dataset=None, label=None, snapshot_names=None, refresh=False):
+        if snapshot_names is None:
+            snapshot_names = []
 
-        args = [
-            'get', 'all',
-            '-H',
-            '-p',
-            '-o', 'name,property,value',
-            '-t', 'snapshot',
-        ]
+        if refresh or not self._snapshots_refreshed:
+            self._snapshots = []
 
-        if dataset:
-            args.extend([
-                '-d', '1',
-                dataset.name
-            ])
+        if not self._snapshots:
+            snapshots = {}
 
-        cmd = self.get_cmd('zfs', args)
-        output = subprocess.check_output(cmd)
+            args = [
+                'get', 'all',
+                '-H',
+                '-p',
+                '-o', 'name,property,value',
+                '-t', 'snapshot',
+            ]
 
-        for line in output.decode('utf8').split('\n'):
-            if not line.strip():
+            cmd = self.get_cmd('zfs', args)
+            output = subprocess.check_output(cmd)
+
+            for line in output.decode('utf8').split('\n'):
+                if not line.strip():
+                    continue
+
+                name, zfs_property, value = line.split('\t')
+
+                if name not in snapshots:
+                    snapshots[name] = {}
+
+                snapshots[name][zfs_property] = autotype(value)
+
+            for name, properties in snapshots.items():
+                snapshot = Snapshot(self, name, properties=properties)
+                self._snapshots.append(snapshot)
+
+            self._snapshots_refreshed = True
+
+        for snapshot in self._snapshots:
+            if snapshot_names and snapshot.snapshot_name not in snapshot_names:
                 continue
 
-            name, zfs_property, value = line.split('\t')
-
-            if name not in snapshots:
-                snapshots[name] = {}
-
-            snapshots[name][zfs_property] = autotype(value)
-
-        for name, properties in snapshots.items():
-            snapshot = Snapshot(self, name, properties=properties)
+            if dataset and snapshot.dataset_name != dataset.name:
+                continue
 
             if label and snapshot.label != label:
                 continue
 
             yield snapshot
+
+    def get_snapshot(self, name):
+        snapshots = self.get_snapshots(snapshot_names=[name])
+
+        if not snapshots:
+            snapshots = self.get_snapshots(snapshot_names=[name], refresh=True)
+
+        return next(snapshots, None)
 
     def get_filesystem(self, fs_name):
         first_fs = None
