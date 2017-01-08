@@ -265,7 +265,12 @@ class Dataset(object):
         return self._host.get_snapshots(label=label, dataset=self)
 
     def get_snapshot(self, name):
-        return self._host.get_snapshot(name=name)
+        snapshots = self._host.get_snapshots(dataset=self, name=name)
+
+        if not snapshots:
+            snapshots = self._host.get_snapshots(dataset=self, name=name, refresh=True)
+
+        return next(snapshots, None)
 
     def replicate(self, dst_dataset, label):
         previous_snapshot = self.get_latest_repl_snapshot(label)
@@ -463,10 +468,7 @@ class Host(object):
             else:
                 yield Dataset(host=self, name=name)
 
-    def get_snapshots(self, dataset=None, label=None, snapshot_names=None, refresh=False):
-        if snapshot_names is None:
-            snapshot_names = []
-
+    def get_snapshots(self, dataset=None, label=None, name=None, refresh=False):
         if refresh or not self._snapshots_refreshed:
             self._snapshots = []
 
@@ -502,24 +504,17 @@ class Host(object):
             self._snapshots_refreshed = True
 
         for snapshot in self._snapshots:
-            if snapshot_names and snapshot.snapshot_name not in snapshot_names:
-                continue
-
             if dataset and snapshot.dataset_name != dataset.name:
                 continue
+
+            if name and snapshot.snapshot_name == name:
+                yield snapshot
+                break
 
             if label and snapshot.label != label:
                 continue
 
             yield snapshot
-
-    def get_snapshot(self, name):
-        snapshots = self.get_snapshots(snapshot_names=[name])
-
-        if not snapshots:
-            snapshots = self.get_snapshots(snapshot_names=[name], refresh=True)
-
-        return next(snapshots, None)
 
     def get_filesystem(self, fs_name):
         first_fs = None
