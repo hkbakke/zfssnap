@@ -181,6 +181,7 @@ class Snapshot(object):
             self._properties = {}
 
         if not self._properties:
+            self.logger.debug('Refreshing zfs properties for %s', self.name)
             args = [
                 'get', 'all',
                 '-H',
@@ -204,7 +205,13 @@ class Snapshot(object):
         value = self.get_properties().get(name, None)
 
         if not value:
+            self.logger.debug('The zfs property \'%s\' was not found in cache '
+                              'for %s. Trying to refresh', name, self.name)
             value = self.get_properties(refresh=True).get(name, None)
+
+        if not value:
+            self.logger.debug('The zfs property \'%s\' does not exist for %s',
+                              name, self.name)
 
         return value
 
@@ -268,6 +275,8 @@ class Dataset(object):
         snapshots = self._host.get_snapshots(dataset=self, name=name)
 
         if not snapshots:
+            self.logger.debug('The snapshot \'%s\' was not found in cache. '
+                              'Trying to refresh', name)
             snapshots = self._host.get_snapshots(dataset=self, name=name, refresh=True)
 
         return next(snapshots, None)
@@ -479,6 +488,7 @@ class Host(object):
             self._snapshots = []
 
         if not self._snapshots:
+            self.logger.debug('Refreshing snapshot list')
             snapshots = {}
 
             args = [
@@ -496,15 +506,15 @@ class Host(object):
                 if not line.strip():
                     continue
 
-                name, zfs_property, value = line.split('\t')
+                snapshot_name, zfs_property, value = line.split('\t')
 
-                if name not in snapshots:
-                    snapshots[name] = {}
+                if snapshot_name not in snapshots:
+                    snapshots[snapshot_name] = {}
 
-                snapshots[name][zfs_property] = autotype(value)
+                snapshots[snapshot_name][zfs_property] = autotype(value)
 
-            for name, properties in snapshots.items():
-                snapshot = Snapshot(self, name, properties=properties)
+            for snapshot_name, properties in snapshots.items():
+                snapshot = Snapshot(self, snapshot_name, properties=properties)
                 self._snapshots.append(snapshot)
 
             self._snapshots_refreshed = True
@@ -688,9 +698,9 @@ class ZFSSnap(object):
         self.print_snapshots(dst_snapshots)
 
     def execute_policy(self, policy, mode='normal'):
-        type = self.config.get_policy(policy)['type']
+        policy_type = self.config.get_policy(policy)['type']
 
-        if type == 'snapshot':
+        if policy_type == 'snapshot':
             if mode == 'normal':
                 self.run_snapshot_policy(policy)
             elif mode == 'list':
@@ -699,7 +709,7 @@ class ZFSSnap(object):
                 self.run_snapshot_policy(policy, reset=True)
             else:
                 raise ZFSSnapException('%s is not a valid mode' % mode)
-        elif type == 'replication':
+        elif policy_type == 'replication':
             if mode == 'normal':
                 self.run_replication_policy(policy)
             elif mode == 'list':
@@ -709,7 +719,7 @@ class ZFSSnap(object):
             else:
                 raise ZFSSnapException('%s is not a valid mode' % mode)
         else:
-            raise ZFSSnapException('%s is not a valid policy type' % type)
+            raise ZFSSnapException('%s is not a valid policy type' % policy_type)
 
     def replicate(self, label, src_dataset, dst_dataset, reset=False):
         self._aquire_lock()
