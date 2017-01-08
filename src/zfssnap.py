@@ -15,7 +15,7 @@ from distutils.version import StrictVersion
 import yaml
 
 
-VERSION = '3.3.0'
+VERSION = '3.4.0'
 PROPERTY_PREFIX = 'zfssnap'
 ZFSSNAP_LABEL = '%s:label' % PROPERTY_PREFIX
 ZFSSNAP_REPL_STATUS = '%s:repl_status' % PROPERTY_PREFIX
