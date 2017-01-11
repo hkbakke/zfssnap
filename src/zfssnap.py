@@ -304,7 +304,7 @@ class Dataset(object):
                                        refresh=refresh)
 
     def get_snapshot(self, name):
-        full_name='%s@%s' % (self.name, name)
+        full_name = '%s@%s' % (self.name, name)
         snapshot = self.host.get_snapshot(dataset=self, name=full_name)
 
         if not snapshot:
@@ -315,7 +315,8 @@ class Dataset(object):
 
         return snapshot
 
-    def _write_metadata_file(self, name, segments, snapshot, previous_snapshot=None):
+    @staticmethod
+    def _write_metadata_file(name, segments, snapshot, previous_snapshot=None):
         metadata = MetadataFile(name)
         metadata.segments = segments
         metadata.label = snapshot.label
@@ -328,7 +329,8 @@ class Dataset(object):
 
         metadata.write()
 
-    def cleanup_sync_files(self, metadata, src_dir):
+    @staticmethod
+    def cleanup_sync_files(metadata, src_dir):
         with contextlib.suppress(FileNotFoundError):
             for segment in metadata.segments:
                 segment_path = os.path.join(src_dir, segment)
@@ -1057,28 +1059,32 @@ class ZFSSnap(object):
             elif mode == list_mode:
                 self._list_snapshot_policy(policy)
             else:
-                raise ZFSSnapException('%s is not a valid mode for policy type %s' % (mode, policy_type))
+                raise ZFSSnapException('%s is not a valid mode for policy type %s' %
+                                       (mode, policy_type))
         elif policy_type == 'replicate':
             if mode == exec_mode:
                 self._run_replicate_policy(policy, reset, source_snapshot)
             elif mode == list_mode:
                 self._list_replicate_policy(policy)
             else:
-                raise ZFSSnapException('%s is not a valid mode for policy type %s' % (mode, policy_type))
+                raise ZFSSnapException('%s is not a valid mode for policy type %s' %
+                                       (mode, policy_type))
         elif policy_type == 'send_to_file':
             if mode == exec_mode:
                 self._run_send_to_file_policy(policy, reset, source_snapshot)
             elif mode == list_mode:
                 self._list_snapshot_policy(policy)
             else:
-                raise ZFSSnapException('%s is not a valid mode for policy type %s' % (mode, policy_type))
+                raise ZFSSnapException('%s is not a valid mode for policy type %s' %
+                                       (mode, policy_type))
         elif policy_type == 'receive_from_file':
             if mode == exec_mode:
                 self._run_receive_from_file_policy(policy, reset)
             elif mode == list_mode:
                 self._list_snapshot_policy(policy)
             else:
-                raise ZFSSnapException('%s is not a valid mode for policy type %s' % (mode, policy_type))
+                raise ZFSSnapException('%s is not a valid mode for policy type %s' %
+                                       (mode, policy_type))
         else:
             raise ZFSSnapException('%s is not a valid policy type' % policy_type)
 
