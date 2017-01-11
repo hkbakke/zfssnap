@@ -11,7 +11,7 @@ policies:
   hourly:
     type: snapshot
 
-    # Label defaults to policy name if not set (this is valid for all policies
+    # Label defaults to policy name if not set (this is valid for all policies)
     label: hourly
 
     # If you leave 'include' unset, all datasets will be snapshoted by default
