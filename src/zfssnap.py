@@ -24,7 +24,7 @@ except ImportError:
     from scandir import scandir
 
 
-VERSION = '3.5.1'
+VERSION = '3.5.2'
 PROPERTY_PREFIX = 'zfssnap'
 ZFSSNAP_LABEL = '%s:label' % PROPERTY_PREFIX
 ZFSSNAP_REPL_STATUS = '%s:repl_status' % PROPERTY_PREFIX
@@ -175,21 +175,7 @@ class Snapshot(object):
 
     @property
     def version(self):
-        if not self._version:
-            version = self.get_property(ZFSSNAP_VERSION)
-
-            if version is None:
-                if self.get_property('zfssnap:label'):
-                    version = '3.0.0'
-                elif self.get_property('zol:zfssnap:label'):
-                    version = '2.0.0'
-
-            self._version = version
-
-        if not self._version:
-            raise SnapshotException('Snapshot version not found')
-
-        return self._version
+        return self.get_property(ZFSSNAP_VERSION)
 
     @version.setter
     def version(self, value):
@@ -197,12 +183,12 @@ class Snapshot(object):
 
     @property
     def label(self):
-        zfs_property = ZFSSNAP_LABEL
+        label = self.get_property(ZFSSNAP_LABEL)
 
-        if StrictVersion('3.0.0') > StrictVersion(self.version) >= StrictVersion('2.0.0'):
-            zfs_property = 'zol:zfssnap:label'
+        if not label:
+            label = self.get_property('zol:zfssnap:label')
 
-        return self.get_property(zfs_property)
+        return label
 
     @label.setter
     def label(self, value):
