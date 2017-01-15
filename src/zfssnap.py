@@ -260,7 +260,7 @@ class Dataset(object):
 
     def get_latest_repl_snapshot(self, label=None, status='success',
                                  refresh=False):
-        snapshots = sorted(self.get_snapshots(label, refresh=refresh),
+        snapshots = sorted(self.get_snapshots(label=label, refresh=refresh),
                            key=attrgetter('datetime'),
                            reverse=True)
 
@@ -302,7 +302,7 @@ class Dataset(object):
         return snapshot
 
     @staticmethod
-    def _write_metadata_file(name, segments, snapshot, previous_snapshot=None):
+    def _write_metadata_file(name, segments, snapshot, base_snapshot=None):
         metadata = MetadataFile(name)
         metadata.segments = segments
         metadata.label = snapshot.label
@@ -310,8 +310,8 @@ class Dataset(object):
         metadata.version = snapshot.version
         metadata.timestamp = snapshot.timestamp
 
-        if previous_snapshot:
-            metadata.depends_on = previous_snapshot.snapshot_name
+        if base_snapshot:
+            metadata.depends_on = base_snapshot.snapshot_name
 
         metadata.write()
 
@@ -324,144 +324,55 @@ class Dataset(object):
 
             os.remove(os.path.join(src_dir, metadata.path))
 
-    def receive_from_file(self, label, src_dir, file_prefix=None):
-        if file_prefix is None:
-            file_prefix = 'zfssnap'
+    @staticmethod
+    def _get_segments(src_dir, metadata_segments):
+        # Refresh file list for each run as each sync can potentially take
+        # a long time
+        src_file_names = {f.name for f in scandir(src_dir)}
 
-        src_files = scandir(src_dir)
-        metadata_pattern = r'^%s_[0-9]{8}T[0-9]{6}Z.json$' % file_prefix
-        metadata_re = re.compile(metadata_pattern)
-        metadata_files = []
+        for segment in sorted(metadata_segments):
+            if segment not in src_file_names:
+                raise SegmentMissingException('Segment %s is missing in %s', segment, src_dir)
 
-        for f in src_files:
-            if re.match(metadata_re, f.name):
-                metadata = MetadataFile(f.path)
-                metadata.read()
+            yield os.path.join(src_dir, segment)
 
-                if metadata.label != label:
-                    self.logger.warning(
-                        'Wrong snapshot label (%s). Do you have other metadata '
-                        'files in %s sharing the prefix \'%s\'? Skipping.',
-                        metadata.label, src_dir, file_prefix)
-                    continue
+    def _get_cat_cmd(self, segments):
+        return self.host.get_cmd('cat', segments)
 
-                if StrictVersion(metadata.version) > StrictVersion(VERSION):
-                    raise ReplicationException(
-                        'The incoming snapshot was generated using zfssnap '
-                        'v%s, while this receiver is using the older zfssnap v%s. '
-                        'Please ensure this receiver use the same or newer version '
-                        'as the sender and try again.' % (metadata.version, VERSION))
+    @staticmethod
+    def _get_receive_cmd(dataset):
+        receive_args = ['receive', '-F', '-v', dataset.name]
+        return dataset.host.get_cmd('zfs', receive_args)
 
-                metadata_files.append(metadata)
+    def _get_base_snapshot(self, label=None, base_snapshot=None):
+        if base_snapshot:
+            snapshot = self.get_snapshot(base_snapshot)
 
-
-        for metadata in sorted(metadata_files, key=attrgetter('datetime')):
-            self.logger.info('Selecting %s', metadata.path)
-
-            # Make sure the cache is refreshed as the snapshot count might have
-            # changed if multiple metadata files are processed in one run
-            previous_snapshot = self.get_latest_repl_snapshot(label,
-                                                              refresh=True)
-
-            if previous_snapshot and previous_snapshot.datetime >= metadata.datetime:
-                self.logger.warning('Ignoring %s as it is already applied or '
-                                    'older than the current snapshot', metadata.path)
-                self.cleanup_sync_files(metadata, src_dir)
-                continue
-
-
-            if metadata.depends_on and not self.get_snapshot(metadata.depends_on):
+            if not snapshot:
                 raise ReplicationException(
-                    'The dependant snapshot %s does not exist on destination dataset %s' %
-                    (metadata.depends_on, self.name))
+                    'The base snapshot %s was not found' % base_snapshot)
+        else:
+            snapshot = self.get_latest_repl_snapshot(label)
 
-            segment_files = []
+        return snapshot
 
-            # Refresh file list for each run as each sync can potentially take
-            # a long time
-            src_file_names = {f.name for f in scandir(src_dir)}
+    def _get_send_cmd(self, snapshot, base_snapshot):
+        send_args = ['send', '-R']
 
-            for segment in sorted(metadata.segments):
-                if segment not in src_file_names:
-                    raise SegmentMissingException('Segment %s is missing in %s', segment, src_dir)
+        if base_snapshot:
+            send_args.extend(['-I', '@%s' % base_snapshot.snapshot_name])
 
-                segment_files.append(os.path.join(src_dir, segment))
+        send_args.append(snapshot.name)
+        return self.host.get_cmd('zfs', send_args)
 
-            cat_args = segment_files
-            cat_cmd = self.host.get_cmd('cat', cat_args)
-            receive_args = ['receive', '-F', '-v', self.name]
-            receive_cmd = self.host.get_cmd('zfs', receive_args)
-
-            self.logger.debug('Replicate cmd: \'%s | %s\'', ' '.join(cat_cmd),
-                              ' '.join(receive_cmd))
-            cat = subprocess.Popen(cat_cmd, stdout=subprocess.PIPE)
-            receive = subprocess.Popen(receive_cmd, stdin=cat.stdout,
-                                       stdout=subprocess.PIPE)
-            cat.stdout.close()
-
-            # See comment in replicate()
-            stdout_data, _ = receive.communicate()
-
-            for line in stdout_data.decode('utf8').split('\n'):
-                if not line.strip():
-                    continue
-
-                self.logger.info(line)
-
-            if receive.returncode == 0:
-                # See comment in replicate()
-                # Workaround for ZoL bug in initial replication fixed in 0.7.0?
-                dst_snapshot = Snapshot(self.host, '%s@%s' % (self.name, metadata.snapshot))
-                dst_snapshot.label = metadata.label
-                dst_snapshot.version = metadata.version
-
-                #dst_snapshot = self.get_snapshot(metadata.snapshot)
-                dst_snapshot.repl_status = 'success'
-
-                # Cleanup files after marking the sync as success as we don't
-                # really care if this goes well for the sake of sync integrity
-                self.cleanup_sync_files(metadata, src_dir)
-            else:
-                raise ReplicationException('Replication failed!')
-
-    def send_to_file(self, label, dst_dir, file_prefix=None, suffix_length=None,
-                     split_size=None, source_snapshot=None):
-        if file_prefix is None:
-            file_prefix = 'zfssnap'
-
+    def _get_split_cmd(self, prefix, split_size, suffix_length):
         if suffix_length is None:
             suffix_length = 4
 
         if split_size is None:
             split_size = '1G'
 
-        previous_snapshot = None
-
-        if source_snapshot:
-            previous_snapshot = self.get_snapshot(source_snapshot)
-
-            if not previous_snapshot:
-                raise ReplicationException('The source snapshot %s was not found',
-                                           source_snapshot)
-        else:
-            previous_snapshot = self.get_latest_repl_snapshot(label)
-
-        snapshot = self.create_snapshot(label=label, recursive=True)
-
-        send_args = ['send', '-R']
-
-        if previous_snapshot:
-            send_args.extend(['-I', '@%s' % previous_snapshot.snapshot_name])
-
-        send_args.append(snapshot.name)
-        send_cmd = self.host.get_cmd('zfs', send_args)
-
-        segments = []
         self.logger.info('Splitting at segment size %s', split_size)
-        prefix = os.path.join(dst_dir, '%s_%s-' % (file_prefix, snapshot.timestamp))
-        metadata_file = os.path.join(dst_dir, '%s_%s.json' % (file_prefix, snapshot.timestamp))
-        segments_log_pattern = r'^creating\sfile\s.*(%s[a-z]{%s}).*$' % (prefix, suffix_length)
-        segments_log_re = re.compile(segments_log_pattern)
         split_args = [
             '--bytes=%s' % split_size,
             '--suffix-length=%s' % suffix_length,
@@ -469,81 +380,23 @@ class Dataset(object):
             '-',
             prefix
         ]
-        split_cmd = self.host.get_cmd('split', split_args)
+        return self.host.get_cmd('split', split_args)
 
-        self.logger.debug('Replicate cmd: \'%s | %s\'', ' '.join(send_cmd),
-                          ' '.join(split_cmd))
-        send = subprocess.Popen(send_cmd, stdout=subprocess.PIPE)
-        split = subprocess.Popen(split_cmd, stdin=send.stdout, stdout=subprocess.PIPE)
-        send.stdout.close()
+    def _get_segment_name(self, line, segments_log_re):
+        match = re.match(segments_log_re, line)
 
-        # See comment in replicate()
-        stdout_data, _ = split.communicate()
+        if match:
+            segment = match.group(1)
+            return os.path.basename(segment)
 
-        for line in stdout_data.decode('utf8').split('\n'):
-            if not line.strip():
-                continue
+    def _run_replication_cmd(self, in_cmd, out_cmd):
+        self.logger.debug('Replication command: \'%s | %s\'',
+                          ' '.join(in_cmd), ' '.join(out_cmd))
 
-            match = re.match(segments_log_re, line)
-
-            if match:
-                segment = match.group(1)
-                self.logger.info('Created replication file segment %s',
-                                 os.path.join(dst_dir, segment))
-                segments.append(os.path.basename(segment))
-                continue
-
-            self.logger.info(line)
-
-        if split.returncode == 0:
-            self.logger.info('Total segment count: %s', len(segments))
-
-            # Ensure metadata file are written before repl_status are set to
-            # 'success', so we are sure this end does not believe things are
-            # ok and uses this snapshot as the base for the next sync while the
-            # metadata file for the opposite end might not have been written
-            self._write_metadata_file(metadata_file, segments, snapshot,
-                                      previous_snapshot)
-
-            # See comment in replicate()
-            snapshot.repl_status = 'success'
-
-            self.cleanup_repl_snapshots(label=label)
-        else:
-            raise ReplicationException('Replication failed!')
-
-    def replicate(self, dst_dataset, label, source_snapshot):
-        previous_snapshot = None
-
-        if source_snapshot:
-            previous_snapshot = self.get_snapshot(source_snapshot)
-
-            if not previous_snapshot:
-                raise ReplicationException('The source snapshot %s was not found',
-                                           source_snapshot)
-        else:
-            previous_snapshot = self.get_latest_repl_snapshot(label)
-
-        snapshot = self.create_snapshot(label=label, recursive=True)
-
-        send_args = ['send', '-R']
-
-        if previous_snapshot:
-            send_args.extend(['-I', '@%s' % previous_snapshot.snapshot_name])
-
-        send_args.append(snapshot.name)
-        send_cmd = self.host.get_cmd('zfs', send_args)
-        receive_args = ['receive', '-F', '-v', dst_dataset.name]
-        receive_cmd = dst_dataset.host.get_cmd('zfs', receive_args)
-
-        self.logger.debug('Replicate cmd: \'%s | %s\'', ' '.join(send_cmd),
-                          ' '.join(receive_cmd))
-        self.logger.info('Replicating %s to %s', self.location,
-                         dst_dataset.location)
-        send = subprocess.Popen(send_cmd, stdout=subprocess.PIPE)
-        receive = subprocess.Popen(receive_cmd, stdin=send.stdout,
-                                   stdout=subprocess.PIPE)
-        send.stdout.close()
+        in_p = subprocess.Popen(in_cmd, stdout=subprocess.PIPE)
+        out_p = subprocess.Popen(out_cmd, stdin=in_p.stdout,
+                                 stdout=subprocess.PIPE)
+        in_p.stdout.close()
 
         # Do not capture stderr_data as I have found no way to capture stderr
         # from the send process properly when using pipes without it beeing
@@ -552,35 +405,123 @@ class Dataset(object):
         # suggested. Instead of having the send stderr go directly to output
         # and receive printed using logging I just leave both untouched for
         # now.
-        stdout_data, _ = receive.communicate()
+        lines = []
 
-        for line in stdout_data.decode('utf8').split('\n'):
-            if not line.strip():
-                continue
+        while out_p.poll() is None:
+            for line in iter(out_p.stdout.readline, b''):
+                line = line.strip().decode('utf8')
+                self.logger.info(line)
+                lines.append(line)
 
-            self.logger.info(line)
+        if out_p.returncode != 0:
+            raise ReplicationException('Replication failed')
 
-        if receive.returncode == 0:
-            # CAUTION!
-            # There is potential for a race condition here. To ensure only
-            # successfully replicated snapshots are replicated on the next run,
-            # repl_status is set immediately after replication.
-            # However, if the script fails in that short time period,
-            # then the script would not be able to find this snapshot on the
-            # next run as it only looks for success in repl_status for
-            # potential snapshots to use for incremental replication, even
-            # though it exists on both sides.
-            # It is therefore important to ensure that at least one replication
-            # snapshot with repl_status success exists at all times.
-            snapshot.repl_status = 'success'
+        return lines
 
-            # For completeness also set repl_status to success on destination.
-            dst_snapshot = dst_dataset.get_snapshot(snapshot.snapshot_name)
-            dst_snapshot.repl_status = snapshot.repl_status
+    def receive_from_file(self, label, src_dir, metadata):
+        self.logger.info('Selecting %s', metadata.path)
 
-            self.cleanup_repl_snapshots(label=label)
-        else:
-            raise ReplicationException('Replication failed!')
+        # Make sure the cache is refreshed as the snapshot count might have
+        # changed if multiple metadata files are processed in one run
+        previous_snapshot = self.get_latest_repl_snapshot(label, refresh=True)
+
+        if previous_snapshot and previous_snapshot.datetime >= metadata.datetime:
+            self.logger.warning('Ignoring %s as it is already applied or '
+                                'older than the current snapshot', metadata.path)
+            self.cleanup_sync_files(metadata, src_dir)
+            return
+
+        if metadata.depends_on and not self.get_snapshot(metadata.depends_on):
+            raise ReplicationException(
+                'The dependant snapshot %s does not exist on destination dataset %s' %
+                (metadata.depends_on, self.name))
+
+        segments = self._get_segments(src_dir, metadata.segments)
+
+        cat_cmd = self._get_cat_cmd(segments)
+        receive_cmd = self._get_receive_cmd(self)
+        self._run_replication_cmd(cat_cmd, receive_cmd)
+
+        # See comment in replicate()
+        # Workaround for ZoL bug in initial replication fixed in 0.7.0?
+        dst_snapshot = Snapshot(self.host, '%s@%s' % (self.name, metadata.snapshot))
+        dst_snapshot.label = metadata.label
+        dst_snapshot.version = metadata.version
+
+        #dst_snapshot = self.get_snapshot(metadata.snapshot)
+        dst_snapshot.repl_status = 'success'
+
+        # Cleanup files after marking the sync as success as we don't
+        # really care if this goes well for the sake of sync integrity
+        self.cleanup_sync_files(metadata, src_dir)
+
+    def send_to_file(self, label, dst_dir, file_prefix=None, suffix_length=None,
+                     split_size=None, base_snapshot=None):
+        if file_prefix is None:
+            file_prefix = 'zfssnap'
+
+        _base_snapshot = self._get_base_snapshot(label, base_snapshot)
+        snapshot = self.create_snapshot(label, recursive=True)
+        prefix = os.path.join(dst_dir, '%s_%s-' % (file_prefix, snapshot.timestamp))
+
+        segments_log_pattern = r'^creating\sfile\s.*(%s[a-z]{%s}).*$' % (prefix, suffix_length)
+        segments_log_re = re.compile(segments_log_pattern)
+
+        send_cmd = self._get_send_cmd(snapshot, _base_snapshot)
+        split_cmd = self._get_split_cmd(prefix, split_size, suffix_length)
+        output = self._run_replication_cmd(send_cmd, split_cmd)
+        segments = []
+
+        for line in output:
+            segment = self._get_segment_name(line, segments_log_re)
+
+            if segment:
+                segments.append(segment)
+
+        self.logger.info('Total segment count: %s', len(segments))
+
+        # Ensure metadata file are written before repl_status are set to
+        # 'success', so we are sure this end does not believe things are
+        # ok and uses this snapshot as the base for the next sync while the
+        # metadata file for the opposite end might not have been written
+        metadata_file = os.path.join(dst_dir,
+                                     '%s_%s.json' % (file_prefix, snapshot.timestamp))
+        self._write_metadata_file(metadata_file, segments, snapshot, _base_snapshot)
+
+        # See comment in replicate()
+        snapshot.repl_status = 'success'
+
+        self.cleanup_repl_snapshots(label)
+
+    def replicate(self, dst_dataset, label, base_snapshot):
+        _base_snapshot = self._get_base_snapshot(label, base_snapshot)
+        snapshot = self.create_snapshot(label, recursive=True)
+
+        self.logger.info('Replicating %s to %s', self.location,
+                         dst_dataset.location)
+
+        send_cmd = self._get_send_cmd(snapshot, _base_snapshot)
+        receive_cmd = self._get_receive_cmd(dst_dataset)
+        self._run_replication_cmd(send_cmd, receive_cmd)
+
+        # CAUTION!
+        # There is potential for a race condition here. To ensure only
+        # successfully replicated snapshots are replicated on the next run,
+        # repl_status is set immediately after replication.
+        # However, if the script fails in that short time period,
+        # then the script would not be able to find this snapshot on the
+        # next run as it only looks for success in repl_status for
+        # potential snapshots to use for incremental replication, even
+        # though it exists on both sides.
+        # It is therefore important to ensure that at least one replication
+        # snapshot with repl_status success exists at all times.
+        snapshot.repl_status = 'success'
+
+        # For completeness also set repl_status to success on destination.
+        dst_snapshot = dst_dataset.get_snapshot(snapshot.snapshot_name)
+        dst_snapshot.repl_status = snapshot.repl_status
+
+        self.cleanup_repl_snapshots(label)
 
     def create_snapshot(self, label, recursive=False, ts=None):
         if ts is None:
@@ -588,9 +529,7 @@ class Dataset(object):
 
         timestamp = ts.strftime('%Y%m%dT%H%M%SZ')
         name = '%s@zfssnap_%s' % (self.name, timestamp)
-        snapshot = self.host.create_snapshot(name=name, label=label,
-                                             recursive=recursive)
-        return snapshot
+        return self.host.create_snapshot(name, label, recursive)
 
     def cleanup_repl_snapshots(self, label=None, keep=1):
         snapshots = self.get_snapshots(label)
@@ -729,7 +668,6 @@ class Host(object):
         subprocess.check_call(cmd)
         snapshot = Snapshot(self, name, properties=properties)
         self._snapshots.append(snapshot)
-
         return snapshot
 
     def destroy_snapshot(self, snapshot, recursive=False):
@@ -792,7 +730,6 @@ class Host(object):
             self._snapshots.append(snapshot)
 
         self._snapshots_refreshed = True
-
 
     def get_snapshot(self, name, dataset, refresh=False):
         for snapshot in self.get_snapshots(dataset=dataset, refresh=refresh):
@@ -875,6 +812,34 @@ class ZFSSnap(object):
         fcntl.flock(self._lock, fcntl.LOCK_UN)
         self.logger.debug('Lock released')
 
+    def _get_metadata_files(self, src_dir, label, file_prefix=None):
+        if file_prefix is None:
+            file_prefix = 'zfssnap'
+
+        metadata_pattern = r'^%s_[0-9]{8}T[0-9]{6}Z.json$' % file_prefix
+        metadata_re = re.compile(metadata_pattern)
+
+        for f in scandir(src_dir):
+            if re.match(metadata_re, f.name):
+                metadata = MetadataFile(f.path)
+                metadata.read()
+
+                if metadata.label != label:
+                    self.logger.warning(
+                        'Wrong snapshot label (%s). Do you have other metadata '
+                        'files in %s sharing the prefix \'%s\'? Skipping.',
+                        metadata.label, src_dir, file_prefix)
+                    continue
+
+                if StrictVersion(metadata.version) > StrictVersion(VERSION):
+                    raise ReplicationException(
+                        'The incoming snapshot was generated using zfssnap '
+                        'v%s, while this receiver is using the older zfssnap v%s. '
+                        'Please ensure this receiver use the same or newer version '
+                        'as the sender and try again.' % (metadata.version, VERSION))
+
+                yield metadata
+
     def _run_snapshot_policy(self, policy, reset=False):
         if not reset:
             sleep = 1
@@ -900,13 +865,13 @@ class ZFSSnap(object):
 
         for dataset in datasets:
             if keep > 0:
-                dataset.create_snapshot(label=label, recursive=recursive)
+                dataset.create_snapshot(label, recursive)
 
-            dataset.cleanup_snapshots(keep=keep, label=label, recursive=recursive)
+            dataset.cleanup_snapshots(keep, label, recursive)
 
         self._release_lock()
 
-    def _run_replicate_policy(self, policy, reset=False, source_snapshot=None):
+    def _run_replicate_policy(self, policy, reset=False, base_snapshot=None):
         if not reset:
             sleep = 1
             self.logger.debug('Sleeping %ss to avoid potential snapshot name '
@@ -928,13 +893,13 @@ class ZFSSnap(object):
         if reset:
             self.logger.warning('Reset is enabled. Reinitializing replication.')
             self.logger.warning('Cleaning up source replication snapshots')
-            src_dataset.cleanup_repl_snapshots(label=label, keep=0)
+            src_dataset.cleanup_repl_snapshots(label, keep=0)
 
             if dst_dataset.exists:
                 self.logger.warning('Destroying destination dataset')
                 dst_dataset.destroy(recursive=True)
         else:
-            src_dataset.replicate(dst_dataset, label, source_snapshot)
+            src_dataset.replicate(dst_dataset, label, base_snapshot)
 
         self._release_lock()
 
@@ -956,13 +921,16 @@ class ZFSSnap(object):
                 dst_dataset.destroy(recursive=True)
         else:
             try:
-                dst_dataset.receive_from_file(label, src_dir, file_prefix)
+                metadata_files = self._get_metadata_files(src_dir, label, file_prefix)
+
+                for metadata in sorted(metadata_files, key=attrgetter('datetime')):
+                    dst_dataset.receive_from_file(label, src_dir, metadata)
             except SegmentMissingException as e:
                 self.logger.info(e)
 
         self._release_lock()
 
-    def _run_send_to_file_policy(self, policy, reset=False, source_snapshot=None):
+    def _run_send_to_file_policy(self, policy, reset=False, base_snapshot=None):
         if not reset:
             sleep = 1
             self.logger.debug('Sleeping %ss to avoid potential snapshot name '
@@ -983,10 +951,10 @@ class ZFSSnap(object):
         if reset:
             self.logger.warning('Reset is enabled. Reinitializing replication.')
             self.logger.warning('Cleaning up source replication snapshots')
-            src_dataset.cleanup_repl_snapshots(label=label, keep=0)
+            src_dataset.cleanup_repl_snapshots(label, keep=0)
         else:
             src_dataset.send_to_file(label, dst_dir, file_prefix, suffix_length,
-                                     split_size, source_snapshot)
+                                     split_size, base_snapshot)
 
         self._release_lock()
 
@@ -1043,7 +1011,7 @@ class ZFSSnap(object):
         print('\nDESTINATION SNAPSHOTS')
         self._print_snapshots(dst_snapshots)
 
-    def execute_policy(self, policy, mode, reset=False, source_snapshot=None):
+    def execute_policy(self, policy, mode, reset=False, base_snapshot=None):
         exec_mode = 'exec'
         list_mode = 'list'
         policy_type = self.config.get_policy(policy)['type']
@@ -1058,7 +1026,7 @@ class ZFSSnap(object):
                                        (mode, policy_type))
         elif policy_type == 'replicate':
             if mode == exec_mode:
-                self._run_replicate_policy(policy, reset, source_snapshot)
+                self._run_replicate_policy(policy, reset, base_snapshot)
             elif mode == list_mode:
                 self._list_replicate_policy(policy)
             else:
@@ -1066,7 +1034,7 @@ class ZFSSnap(object):
                                        (mode, policy_type))
         elif policy_type == 'send_to_file':
             if mode == exec_mode:
-                self._run_send_to_file_policy(policy, reset, source_snapshot)
+                self._run_send_to_file_policy(policy, reset, base_snapshot)
             elif mode == list_mode:
                 self._list_snapshot_policy(policy)
             else:
@@ -1119,8 +1087,8 @@ def main():
     mutex_group2.add_argument('--list', action='store_true',
                               help='List all policy snapshots')
     mutex_group2.add_argument(
-        '--source-snapshot', metavar='NAME',
-        help='Override the source snapshot used for replication')
+        '--base-snapshot', metavar='NAME',
+        help='Override the base snapshot used for replication')
 
     parser.add_argument('--quiet', action='store_true',
                         help='Suppress output from script')
@@ -1161,7 +1129,7 @@ def main():
 
     try:
         with ZFSSnap(config=args.config, lockfile=args.lockfile) as z:
-            z.execute_policy(args.policy, mode, args.reset, args.source_snapshot)
+            z.execute_policy(args.policy, mode, args.reset, args.base_snapshot)
     except ZFSSnapException:
         return 10
     except ReplicationException:

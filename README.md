@@ -81,7 +81,7 @@ The .zfs directory can remain hidden.
 
 ## Development
 ### Run tests
-Install py.test (preferably in a virtual environment):
+Install pytest (preferably in a virtual environment):
 
     pip3 install pytest
 Ensure you are standing in the project root:
