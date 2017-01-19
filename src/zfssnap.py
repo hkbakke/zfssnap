@@ -40,7 +40,10 @@ def autotype(value):
 
     return value
 
-
+    
+class MetadataFileException(Exception):
+    pass
+    
 class ReplicationException(Exception):
     pass
 
@@ -59,10 +62,10 @@ class MetadataFile(object):
         self.path = path
         self.logger = logging.getLogger(__name__)
         self.version = None
-        self.timestamp = None
+        self._timestamp = None
         self.label = None
-        self.snapshot = None
-        self.depends_on = None
+        self._snapshot = None
+        self._depends_on = None
         self.segments = []
 
     @staticmethod
@@ -87,7 +90,7 @@ class MetadataFile(object):
         self.logger.debug('Validating metadata checksum')
 
         if checksum != self._get_checksum(metadata):
-            raise ZFSSnapException('Invalid metadata checksum')
+            raise MetadataFileException('Invalid metadata checksum')
 
         self.version = metadata['version']
         self.timestamp = metadata['timestamp']
@@ -107,7 +110,30 @@ class MetadataFile(object):
         metadata['checksum'] = self._get_checksum(metadata)
         self._write_file(metadata)
 
+    def _validate_snapshot_name(self, name):
+        pattern = r'^zfssnap_[0-9]{8}T[0-9]{6}Z$'
+        if re.match(pattern, name):
+            return name
+        raise MetadataFileException('Invalid snapshot name %s' % name)
+        
     @property
+    def snapshot(self):
+        return self._snapshot
+        
+    @snapshot.setter
+    def snapshot(self, name):
+        return 
+    
+        
+        
+    @property
+    def depends_on(self):
+        return self._depends_on
+        
+    @property
+    def timestamp(self):
+        pattern = r'^.+@zfssnap_[0-9]{8}T[0-9]{6}Z$'
+            @property
     def datetime(self):
         strptime_name = re.sub(r'Z$', '+0000', self.timestamp)
         return datetime.strptime(strptime_name, '%Y%m%dT%H%M%S%z')
