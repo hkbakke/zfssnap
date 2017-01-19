@@ -111,8 +111,8 @@ class TestMetadataFile(object):
             metadata._validate_snapshot_name('invalid_20170116T073154Z')
 
     def test_validate_snapshot_name(self, metadata):
-            assert metadata._validate_snapshot_name(
-                'zfssnap_20170116T073154Z') == 'zfssnap_20170116T073154Z'
+        assert metadata._validate_snapshot_name(
+            'zfssnap_20170116T073154Z') == 'zfssnap_20170116T073154Z'
 
     def test_get_metadata_checksum(self):
         metadata = {
@@ -149,12 +149,10 @@ class TestMetadataFile(object):
 
         monkeypatch.setattr(metadata, '_read_file', mock_read_file)
         metadata.read()
-        assert metadata.segments == [
-                'abc_20170116T160746Z-aaa',
-                'abc_20170116T160746Z-aab',
-                'abc_20170116T160746Z-aac',
-                'abc_20170116T160746Z-aad'
-            ]
+        assert metadata.segments == ['abc_20170116T160746Z-aaa',
+                                     'abc_20170116T160746Z-aab',
+                                     'abc_20170116T160746Z-aac',
+                                     'abc_20170116T160746Z-aad']
         assert metadata.timestamp == '20170116T160746Z'
         assert metadata.snapshot == 'zfssnap_20170116T160746Z'
         assert metadata.depends_on == 'zfssnap_20170116T073154Z'
@@ -207,12 +205,10 @@ class TestMetadataFile(object):
 
     def test_write_file(self, monkeypatch, metadata):
         def mock_write_metadata(metadata):
-            assert metadata['segments'] == [
-                    'abc_20170116T160746Z-aaa',
-                    'abc_20170116T160746Z-aab',
-                    'abc_20170116T160746Z-aac',
-                    'abc_20170116T160746Z-aad'
-                ]
+            assert metadata['segments'] == ['abc_20170116T160746Z-aaa',
+                                            'abc_20170116T160746Z-aab',
+                                            'abc_20170116T160746Z-aac',
+                                            'abc_20170116T160746Z-aad']
             assert metadata['timestamp'] == '20170116T160746Z'
             assert metadata['snapshot'] == 'zfssnap_20170116T160746Z'
             assert metadata['depends_on'] == 'zfssnap_20170116T073154Z'
