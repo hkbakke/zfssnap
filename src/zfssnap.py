@@ -40,10 +40,10 @@ def autotype(value):
 
     return value
 
-    
+
 class MetadataFileException(Exception):
     pass
-    
+
 class ReplicationException(Exception):
     pass
 
@@ -61,12 +61,12 @@ class MetadataFile(object):
     def __init__(self, path):
         self.path = path
         self.logger = logging.getLogger(__name__)
-        self.version = None
+        self._version = None
         self._timestamp = None
-        self.label = None
+        self._label = None
         self._snapshot = None
         self._depends_on = None
-        self.segments = []
+        self._segments = []
 
     @staticmethod
     def _get_checksum(metadata):
@@ -108,32 +108,86 @@ class MetadataFile(object):
         metadata['depends_on'] = self.depends_on
         metadata['segments'] = self.segments
         metadata['checksum'] = self._get_checksum(metadata)
+
+        for key, value in metadata.items():
+            if key == 'depends_on':
+                continue
+            if not value:
+                raise MetadataFileException('\'%s\' attribute is not set' % key)
+
         self._write_file(metadata)
 
-    def _validate_snapshot_name(self, name):
+    @staticmethod
+    def _validate_snapshot_name(name):
         pattern = r'^zfssnap_[0-9]{8}T[0-9]{6}Z$'
-        if re.match(pattern, name):
-            return name
-        raise MetadataFileException('Invalid snapshot name %s' % name)
-        
+        if not re.match(pattern, name):
+            raise MetadataFileException('Invalid snapshot name \'%s\'' % name)
+        return name
+
+    @property
+    def label(self):
+        return self._label
+
+    @label.setter
+    def label(self, label):
+        if not label:
+            raise MetadataFileException('empty label value')
+        if not isinstance(label, str):
+            raise MetadataFileException('label must be a str object')
+        self._label = label
+
+    @property
+    def version(self):
+        return self._version
+
+    @version.setter
+    def version(self, version):
+        if not version:
+            raise MetadataFileException('empty version value')
+        if not isinstance(version, str):
+            raise MetadataFileException('version must be a str object')
+        self._version = version
+
+    @property
+    def segments(self):
+        return self._segments
+
+    @segments.setter
+    def segments(self, segments):
+        if not segments:
+            raise MetadataFileException('empty segment list')
+        if not isinstance(segments, list):
+            raise MetadataFileException('segments must be a list object')
+        self._segments = segments
+
     @property
     def snapshot(self):
         return self._snapshot
-        
+
     @snapshot.setter
     def snapshot(self, name):
-        return 
-    
-        
-        
+        self._snapshot = self._validate_snapshot_name(name)
+
     @property
     def depends_on(self):
         return self._depends_on
-        
+
+    @depends_on.setter
+    def depends_on(self, name):
+        self._depends_on = self._validate_snapshot_name(name)
+
     @property
     def timestamp(self):
-        pattern = r'^.+@zfssnap_[0-9]{8}T[0-9]{6}Z$'
-            @property
+        return self._timestamp
+
+    @timestamp.setter
+    def timestamp(self, timestamp):
+        pattern = r'^[0-9]{8}T[0-9]{6}Z$'
+        if not re.match(pattern, timestamp):
+            raise MetadataFileException('Invalid timestamp \'%s\'' % timestamp)
+        self._timestamp = timestamp
+
+    @property
     def datetime(self):
         strptime_name = re.sub(r'Z$', '+0000', self.timestamp)
         return datetime.strptime(strptime_name, '%Y%m%dT%H%M%S%z')
@@ -411,9 +465,9 @@ class Dataset(object):
         ]
         return self.host.get_cmd('split', split_args)
 
-    def _get_segment_name(self, line, segments_log_re):
+    @staticmethod
+    def _get_segment_name(line, segments_log_re):
         match = re.match(segments_log_re, line)
-
         if match:
             segment = match.group(1)
             return os.path.basename(segment)
