@@ -83,7 +83,7 @@ The .zfs directory can remain hidden.
 ### Run tests
 Install pytest (preferably in a virtual environment):
 
-    pip3 install pytest
+    pip3 install pytest pytest-cov
 Ensure you are standing in the project root:
 
-    PYTHONPATH=src/ pytest
+    PYTHONPATH=src/ pytest --cov=zfssnap

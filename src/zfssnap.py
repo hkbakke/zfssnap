@@ -71,12 +71,18 @@ class MetadataFile(object):
         checksum.update(json.dumps(metadata, sort_keys=True).encode('utf-8'))
         return checksum.hexdigest()
 
-    def read(self):
+    def _read_file(self):
         self.logger.debug('Reading metadata from %s', self.path)
-
         with open(self.path) as f:
-            metadata = json.load(f)
+            return json.load(f)
 
+    def _write_file(self, metadata):
+        self.logger.info('Writing metadata to %s', self.path)
+        with open(self.path, 'w') as f:
+            f.write(json.dumps(metadata, sort_keys=True, indent=4))
+
+    def read(self):
+        metadata = self._read_file()
         checksum = metadata.pop('checksum')
         self.logger.debug('Validating metadata checksum')
 
@@ -91,18 +97,15 @@ class MetadataFile(object):
         self.segments = metadata['segments']
 
     def write(self):
-        self.logger.info('Writing metadata to %s', self.path)
         metadata = {}
-
-        with open(self.path, 'w') as f:
-            metadata['label'] = self.label
-            metadata['snapshot'] = self.snapshot
-            metadata['version'] = self.version
-            metadata['timestamp'] = self.timestamp
-            metadata['depends_on'] = self.depends_on
-            metadata['segments'] = self.segments
-            metadata['checksum'] = self._get_checksum(metadata)
-            f.write(json.dumps(metadata, sort_keys=True, indent=4))
+        metadata['label'] = self.label
+        metadata['snapshot'] = self.snapshot
+        metadata['version'] = self.version
+        metadata['timestamp'] = self.timestamp
+        metadata['depends_on'] = self.depends_on
+        metadata['segments'] = self.segments
+        metadata['checksum'] = self._get_checksum(metadata)
+        self._write_file(metadata)
 
     @property
     def datetime(self):

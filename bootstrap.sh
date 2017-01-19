@@ -21,4 +21,4 @@ zfs set xattr=sa dev-2
 zfs set acltype=posixacl dev-2
 zfs create dev-2/backup
 
-pip3 install pytest scandir pylint
+pip3 install pytest pytest-cov scandir pylint
