@@ -174,7 +174,8 @@ class MetadataFile(object):
 
     @depends_on.setter
     def depends_on(self, name):
-        self._depends_on = self._validate_snapshot_name(name)
+        if name is not None:
+            self._depends_on = self._validate_snapshot_name(name)
 
     @property
     def timestamp(self):
