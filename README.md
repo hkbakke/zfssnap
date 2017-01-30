@@ -38,16 +38,16 @@ zfssnap works with the concept of policies. These are defined in the YAML based
 configuration file. An example file is provided with the source.
 Running the command normally just involves pointing to a policy name.
 
-Create a snapshot of all ZFS file systems defined in the policy `hourly`.
+Create a snapshot of all ZFS file systems defined in the policy `snapshot-all`.
 
-    ./zfssnap.py --policy hourly
+    ./zfssnap.py --policy snapshot-all
 Remove all snapshots for a policy or re-initialize a replication policy
 
-    ./zfssnap.py --policy hourly --reset
+    ./zfssnap.py --policy snapshot-all --reset
 
 List all snapshots belonging to a policy
 
-    ./zfssnap.py --policy hourly --list
+    ./zfssnap.py --policy snapshot-all --list
 List all options
 
     ./zfssnap.py --help
@@ -56,11 +56,8 @@ List all options
 To schedule snapshots crontab are normally used. This is an example root
 crontab for this purpose:
 
-    */15 *      *  *  *   /usr/local/sbin/zfssnap --log-level WARNING --policy frequent
-    8    */1    *  *  *   /usr/local/sbin/zfssnap --log-level WARNING --policy hourly
-    16    0     *  *  *   /usr/local/sbin/zfssnap --log-level WARNING --policy daily
-    20   04     *  *  *   /usr/local/sbin/zfssnap --log-level WARNING --policy daily-vms
-    */5  *      *  *  *   /usr/local/sbin/zfssnap --log-level WARNING --policy replicate-pve
+    */15 *      *  *  *   /usr/local/sbin/zfssnap --log-level WARNING --policy snapshot-all
+    */5  *      *  *  *   /usr/local/sbin/zfssnap --log-level WARNING --policy replicate-vms
 
 * `zfssnap.py` has been symlinked to `/usr/local/sbin/zfssnap` for ease of use.
 * `--quiet` can be used to supress all output, even warnings and errors.
