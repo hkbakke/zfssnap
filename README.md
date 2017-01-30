@@ -15,7 +15,7 @@ It is made for the following purposes:
 * Tested on Debian Jessie and Stretch
 * ZFS on Linux packages
 * Python >= 3.4
-* Python modules: yaml, scandir (Python < v3.5 only)
+* Python modules: yaml, python-dateutil, scandir (Python < v3.5 only)
 
 ## ZFS properties used
 * `zfssnap:label=[str]`: Identifies the label of the snapshot.
