@@ -8,7 +8,7 @@ cmds:
 # you please, and have as many as you want.
 
 policies:
-  hourly:
+  snapshots:
     type: snapshot
 
     # Label defaults to policy name if not set (this is valid for all policies)
@@ -19,7 +19,15 @@ policies:
       - '*'
     exclude:
       - 'pool-2/backup'
-    keep: 24
+    keep:
+      frequently: 4  # How many frequent snapshots to keep within the last
+                     # hour. The interval between the kept snapshots will be
+                     # '60 / <keep>' minutes.
+      hourly: 24  # How many hourly snapshots to keep
+      daily: 31  # How many daily snapshots to keep
+      weekly: 5  # How many weekly snapshots to keep
+      monthly: 12  # How many montly snapshots to keep
+      yearly: 2  # How many yearly snapshots to keep
 
     # If not set recursive defaults to 'no'
     recursive: no
@@ -28,7 +36,8 @@ policies:
   # non-recursively
   daily:
     type: snapshot
-    keep: 31
+    keep:
+      daily: 31
 
   # You can have many include and exclude patterns
   monthly:
@@ -39,7 +48,8 @@ policies:
     exclude:
       - 'pool-1/backup'
       - 'pool-2/backup'
-    keep: 3
+    keep:
+      daily: 31
 
   recursive-1:
     # Here we are doing recursive snapshots on the top level only, excluding
@@ -49,7 +59,8 @@ policies:
       - '*'
     exclude:
       - '*/*'
-    keep: 12
+    keep:
+      hourly: 24
     recursive: yes
 
   replicate-vms:

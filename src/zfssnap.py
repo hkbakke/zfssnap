@@ -6,7 +6,8 @@ import sys
 import subprocess
 import re
 import os
-from datetime import datetime
+from datetime import datetime, date, timedelta, timezone
+from dateutil.relativedelta import relativedelta
 from operator import attrgetter
 import fcntl
 import time
@@ -24,7 +25,7 @@ except ImportError:
     from scandir import scandir
 
 
-VERSION = '3.5.3'
+VERSION = '3.6.0'
 PROPERTY_PREFIX = 'zfssnap'
 ZFSSNAP_LABEL = '%s:label' % PROPERTY_PREFIX
 ZFSSNAP_REPL_STATUS = '%s:repl_status' % PROPERTY_PREFIX
@@ -222,6 +223,7 @@ class Snapshot(object):
         self.name = name
         self.dataset_name, self.snapshot_name = name.split('@')
         self.host = host
+        self._datetime = None
         self._snapshot_name = None
         self._version = None
         self._properties = {}
@@ -246,8 +248,10 @@ class Snapshot(object):
 
     @property
     def datetime(self):
-        strptime_name = re.sub(r'Z$', '+0000', self.snapshot_name)
-        return datetime.strptime(strptime_name, 'zfssnap_%Y%m%dT%H%M%S%z')
+        if not self._datetime:
+            strptime_name = re.sub(r'Z$', '+0000', self.snapshot_name)
+            self._datetime = datetime.strptime(strptime_name, 'zfssnap_%Y%m%dT%H%M%S%z')
+        return self._datetime
 
     @property
     def repl_status(self):
@@ -595,6 +599,7 @@ class Dataset(object):
         # However, if the script fails in that short time period,
         # then the script would not be able to find this snapshot on the
         # next run as it only looks for success in repl_status for
+
         # potential snapshots to use for incremental replication, even
         # though it exists on both sides.
         # It is therefore important to ensure that at least one replication
@@ -626,13 +631,94 @@ class Dataset(object):
             else:
                 snapshot.destroy(recursive=True)
 
-    def cleanup_snapshots(self, keep, label=None, recursive=False):
-        snapshots = sorted(self.get_snapshots(label),
-                           key=attrgetter('datetime'),
-                           reverse=True)[keep:]
+    @staticmethod
+    def _get_delta_datetimes(start, end, delta):
+        current = start
+        while current > end:
+            yield current
+            current -= delta
 
-        for snapshot in sorted(snapshots, key=attrgetter('datetime')):
-            snapshot.destroy(recursive)
+    def _get_snapshots_to_keep(self, snapshots, start, end, delta):
+        for dt in self._get_delta_datetimes(start, end, delta):
+            for snapshot in snapshots:
+                if dt <= snapshot.datetime < dt + delta:
+                    yield snapshot
+                    break
+
+    def _get_frequently_snapshots(self, snapshots, keep):
+        # This is special as we do not know how long a "frequent" interval
+        # is. It is understood in this code as snapshots with a retention period
+        # of less than one hour. This is also the only retention category
+        # that uses a sliding window to define which snapshots that should be
+        # kept.
+        interval = int(60 / keep)
+        start = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        delta = timedelta(minutes=interval)
+        end = start - timedelta(hours=1)
+        return self._get_snapshots_to_keep(snapshots, start, end, delta)
+
+    def _get_hourly_snapshots(self, snapshots, keep):
+        start = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        delta = timedelta(hours=1)
+        end = start - (delta * keep)
+        return self._get_snapshots_to_keep(snapshots, start, end, delta)
+
+    def _get_daily_snapshots(self, snapshots, keep):
+        start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        delta = timedelta(days=1)
+        end = start - (delta * keep)
+        return self._get_snapshots_to_keep(snapshots, start, end, delta)
+
+    def _get_weekly_snapshots(self, snapshots, keep):
+        start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        delta = timedelta(weeks=1)
+        end = start - (delta * keep)
+        return self._get_snapshots_to_keep(snapshots, start, end, delta)
+
+    def _get_monthly_snapshots(self, snapshots, keep):
+        start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        delta = relativedelta(months=1)
+        end = start - (delta * keep)
+        return self._get_snapshots_to_keep(snapshots, start, end, delta)
+
+    def _get_yearly_snapshots(self, snapshots, keep):
+        start = datetime.now(timezone.utc).replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        delta = relativedelta(years=1)
+        end = start - (delta * keep)
+        return self._get_snapshots_to_keep(snapshots, start, end, delta)
+
+    def enforce_retention(self, keep, label=None, recursive=False):
+        snapshots = sorted(self.get_snapshots(label),
+                           key=attrgetter('datetime'), reverse=True)
+        keep_snapshots = set()
+
+        if keep['frequently'] > 0:
+            keep_snapshots.update(
+                {s for s in self._get_frequently_snapshots(snapshots, keep['frequently'])})
+
+        if keep['hourly'] > 0:
+            keep_snapshots.update(
+                {s for s in self._get_hourly_snapshots(snapshots, keep['hourly'])})
+
+        if keep['daily'] > 0:
+            keep_snapshots.update(
+                {s for s in self._get_daily_snapshots(snapshots, keep['daily'])})
+
+        if keep['weekly'] > 0:
+            keep_snapshots.update(
+                {s for s in self._get_weekly_snapshots(snapshots, keep['weekly'])})
+
+        if keep['monthly'] > 0:
+            keep_snapshots.update(
+                {s for s in self._get_monthly_snapshots(snapshots, keep['monthly'])})
+
+        if keep['yearly'] > 0:
+            keep_snapshots.update(
+                {s for s in self._get_yearly_snapshots(snapshots, keep['yearly'])})
+
+        for snapshot in snapshots:
+            if snapshot not in keep_snapshots:
+                snapshot.destroy(recursive)
 
 
 class Host(object):
@@ -755,7 +841,7 @@ class Host(object):
         return snapshot
 
     def destroy_snapshot(self, snapshot, recursive=False):
-        self.logger.info('Destroying dataset %s', snapshot.name)
+        self.logger.info('Destroying snapshot %s', snapshot.name)
         args = ['destroy']
 
         if recursive:
@@ -937,21 +1023,29 @@ class ZFSSnap(object):
         datasets = host.get_filesystems(
             include=policy_config.get('include', None),
             exclude=policy_config.get('exclude', None))
-        keep = policy_config['keep']
         recursive = policy_config.get('recursive', False)
+        keep = {
+            'frequently': 0,
+            'hourly': 0,
+            'daily': 0,
+            'weekly': 0,
+            'monthly': 0,
+            'yearly': 0
+        }
 
-        if reset:
+        if not reset:
+            keep.update(policy_config['keep'])
+        else:
             self.logger.warning('Reset is enabled. Removing all snapshots '
                                 'for this policy')
-            keep = 0
 
         self._aquire_lock()
 
         for dataset in datasets:
-            if keep > 0:
+            if not reset:
                 dataset.create_snapshot(label, recursive)
 
-            dataset.cleanup_snapshots(keep, label, recursive)
+            dataset.enforce_retention(keep, label, recursive)
 
         self._release_lock()
 
