@@ -6,8 +6,7 @@ import sys
 import subprocess
 import re
 import os
-from datetime import datetime, date, timedelta, timezone
-from dateutil.relativedelta import relativedelta
+from datetime import datetime, timedelta, timezone
 from operator import attrgetter
 import fcntl
 import time
@@ -18,6 +17,7 @@ import json
 import contextlib
 
 import yaml
+from dateutil.relativedelta import relativedelta
 
 try:
     from os import scandir
