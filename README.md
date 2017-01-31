@@ -33,6 +33,26 @@ unmanagable in more complex setups. ZFS properties are now only used for keeping
 state and information about the snapshot, while the configuration is stored in
 the configuration file.
 
+## Configuration
+See the example configration file for more information.
+
+A very simple config for snapshotting all datasets non-recursively could look
+like this:
+
+    cmds:
+      ssh: /usr/bin/ssh
+      zfs: /sbin/zfs
+      split: /usr/bin/split
+      cat: /bin/cat
+
+    policies:
+      snapshot-all:
+        type: snapshot
+        keep:
+          hourly: 24
+          daily: 7
+          weekly: 5
+
 ## Usage
 zfssnap works with the concept of policies. These are defined in the YAML based
 configuration file. An example file is provided with the source.
