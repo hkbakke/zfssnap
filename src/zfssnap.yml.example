@@ -20,14 +20,13 @@ policies:
     exclude:
       - 'pool-2/backup'
     keep:
-      frequently: 4  # How many frequent snapshots to keep within the last
-                     # hour. The interval between the kept snapshots will be
-                     # '60 / <keep>' minutes.
-      hourly: 24  # How many hourly snapshots to keep
-      daily: 31  # How many daily snapshots to keep
-      weekly: 5  # How many weekly snapshots to keep
+      minimum: 4   # Keep at least this many snapshots regardless of retention
+                   # policy
+      hourly: 24   # How many hourly snapshots to keep
+      daily: 31    # How many daily snapshots to keep
+      weekly: 5    # How many weekly snapshots to keep
       monthly: 12  # How many montly snapshots to keep
-      yearly: 2  # How many yearly snapshots to keep
+      yearly: 2    # How many yearly snapshots to keep
 
     # If not set recursive defaults to 'no'
     recursive: no
@@ -81,6 +80,17 @@ policies:
       host: remotehost
       cmds:
         zfs: /sbin/zfs
+    keep:
+      minimum: 6  # Keep at least this many snapshots regardless of retention
+                  # policy. One snapshot is always kept for replication
+                  # policies, regardless of this setting, to ensure incremental
+                  # send is possible without breaking the snapshot dependency.
+                  # Default: 0
+      hourly: 24  # How many hourly snapshots to keep. Default: 0
+      daily: 7    # How many daily snapshots to keep. Default: 0
+      weekly: 5   # How many weekly snapshots to keep. Default: 0
+      monthly: 0  # How many montly snapshots to keep. Default: 0
+      yearly: 0   # How many yearly snapshots to keep. Default: 0
 
   # Example configuration for the sending side when replicating a dataset by
   # file. If the send output exceeds split_size a new segment is generated.
@@ -103,9 +113,22 @@ policies:
        suffix_length: 4
     destination:
        dir: /srv/outgoing
+    keep:
+      minimum: 4  # Keep at least this many snapshots regardless of retention
+                  # policy. One snapshot is always kept for replication
+                  # policies, regardless of this setting, to ensure incremental
+                  # send is possible without breaking the snapshot dependency.
+                  # Default: 0
+      hourly: 24  # How many hourly snapshots to keep. Default: 0
+      daily: 7    # How many daily snapshots to keep. Default: 0
+      weekly: 5   # How many weekly snapshots to keep. Default: 0
+      monthly: 0  # How many montly snapshots to keep. Default: 0
+      yearly: 0   # How many yearly snapshots to keep. Default: 0
 
   # Example configuration for the receiving side when replicating a dataset by
   # file. The file_prefix and label must match that of the sending side.
+  # There is no keep policy for the receiving end as this is handled by the
+  # sending side.
   receive-from-file:
     type: receive_from_file
       label: replicate-disconnected
@@ -114,18 +137,3 @@ policies:
         dir: /srv/incoming
       destination:
         dataset: 'pool-1/backup/test-1'
-
-  # As only 1 successful replication snapshot is kept at the source it is wise
-  # to have an additional snapshot policy on the source dataset for use in case
-  # something happens with the file based replication and you need a common
-  # snapshot to get in sync again with the --source-snapshot option.
-  # These snapshots will be synced to the destination as part of the normal
-  # replication job.
-  # The recursive part is important as all snapshots used for replication are
-  # recursive.
-  daily-replication-recovery:
-    type: snapshot
-    include:
-      - 'pool-1/vms-1'
-    keep: 31
-    recursive: yes

@@ -1,6 +1,7 @@
 # Ignore configuration files used for testing
 src/__pycache__/
+src/pylintrc
+src/zfssnap.yml
 tests/__pycache__/
 .vagrant/
 .cache/
-src/zfssnap.yml
