@@ -33,7 +33,6 @@ unmanagable in more complex setups. ZFS properties are now only used for keeping
 state and information about the snapshot, while the configuration is stored in
 the configuration file.
 
-## Configuration
 A very simple config for snapshotting all datasets non-recursively could look
 like this:
 
