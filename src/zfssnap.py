@@ -686,6 +686,9 @@ class Dataset(object):
                 if value > 0:
                     _keep[key] += value
 
+            if _keep['minimum'] < 0:
+                _keep['minimum'] = 0
+
         snapshots = sorted(self.get_snapshots(label), key=attrgetter('datetime'),
                            reverse=True)[_keep['minimum']:]
 
