@@ -622,8 +622,13 @@ class Dataset(object):
             current -= delta
 
     def _get_keep_snapshots(self, snapshots, start, end, delta):
+        # Ensure the snapshots are sorted in the way we want, as there are no
+        # guarantees that they are presorted correctly
+        _snapshots = sorted(snapshots, key=attrgetter('datetime'),
+                            reverse=True)
+
         for dt in self._get_delta_datetimes(start, end, delta):
-            for snapshot in snapshots:
+            for snapshot in _snapshots:
                 if dt <= snapshot.datetime < dt + delta:
                     yield snapshot
                     break
@@ -689,6 +694,8 @@ class Dataset(object):
             if _keep['minimum'] < 0:
                 _keep['minimum'] = 0
 
+
+        self.logger.debug('Keep values used: %s', _keep)
         snapshots = sorted(self.get_snapshots(label), key=attrgetter('datetime'),
                            reverse=True)[_keep['minimum']:]
 
