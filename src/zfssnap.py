@@ -700,20 +700,25 @@ class Dataset(object):
                            reverse=True)[_keep['minimum']:]
 
         if not reset:
-            keep_snapshots.update(
-                {s for s in self._get_hourly_snapshots(snapshots, _keep['hourly'])})
+            if _keep['hourly'] > 0:
+                keep_snapshots.update(
+                    {s for s in self._get_hourly_snapshots(snapshots, _keep['hourly'])})
 
-            keep_snapshots.update(
-                {s for s in self._get_daily_snapshots(snapshots, _keep['daily'])})
+            if _keep['daily'] > 0:
+                keep_snapshots.update(
+                    {s for s in self._get_daily_snapshots(snapshots, _keep['daily'])})
 
-            keep_snapshots.update(
-                {s for s in self._get_weekly_snapshots(snapshots, _keep['weekly'])})
+            if _keep['weekly'] > 0:
+                keep_snapshots.update(
+                    {s for s in self._get_weekly_snapshots(snapshots, _keep['weekly'])})
 
-            keep_snapshots.update(
-                {s for s in self._get_monthly_snapshots(snapshots, _keep['monthly'])})
+            if _keep['monthly'] > 0:
+                keep_snapshots.update(
+                    {s for s in self._get_monthly_snapshots(snapshots, _keep['monthly'])})
 
-            keep_snapshots.update(
-                {s for s in self._get_yearly_snapshots(snapshots, _keep['yearly'])})
+            if _keep['yearly'] > 0:
+                keep_snapshots.update(
+                    {s for s in self._get_yearly_snapshots(snapshots, _keep['yearly'])})
 
         for snapshot in snapshots:
             if snapshot in keep_snapshots:
