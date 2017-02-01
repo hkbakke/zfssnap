@@ -8,7 +8,7 @@ cmds:
 # you please, and have as many as you want.
 
 policies:
-  snapshots:
+  all-but-backup:
     type: snapshot
 
     # Label defaults to policy name if not set (this is valid for all policies)
@@ -19,14 +19,7 @@ policies:
       - '*'
     exclude:
       - 'pool-2/backup'
-    keep:
-      minimum: 4   # Keep at least this many snapshots regardless of retention
-                   # policy
-      hourly: 24   # How many hourly snapshots to keep
-      daily: 31    # How many daily snapshots to keep
-      weekly: 5    # How many weekly snapshots to keep
-      monthly: 12  # How many montly snapshots to keep
-      yearly: 2    # How many yearly snapshots to keep
+    keep: # See replication policy example
 
     # If not set recursive defaults to 'no'
     recursive: no
@@ -39,7 +32,7 @@ policies:
       daily: 31
 
   # You can have many include and exclude patterns
-  monthly:
+  some-pools-only:
     type: snapshot
     include:
       - 'pool-1*'
@@ -51,8 +44,9 @@ policies:
       daily: 31
 
   recursive-1:
-    # Here we are doing recursive snapshots on the top level only, excluding
-    # all nested datasets.
+    # Here we are doing recursive snapshots on the top level, excluding all
+    # lower level datasets as they are included in the top level recursive
+    # snapshots.
     type: snapshot
     include:
       - '*'
@@ -81,16 +75,14 @@ policies:
       cmds:
         zfs: /sbin/zfs
     keep:
-      minimum: 6  # Keep at least this many snapshots regardless of retention
-                  # policy. One snapshot is always kept for replication
-                  # policies, regardless of this setting, to ensure incremental
-                  # send is possible without breaking the snapshot dependency.
-                  # Default: 0
-      hourly: 24  # How many hourly snapshots to keep. Default: 0
-      daily: 7    # How many daily snapshots to keep. Default: 0
-      weekly: 5   # How many weekly snapshots to keep. Default: 0
-      monthly: 0  # How many montly snapshots to keep. Default: 0
-      yearly: 0   # How many yearly snapshots to keep. Default: 0
+      # One snapshot is always kept for replication policies to ensure
+      # incremental send is possible, regardless of these settings.
+      latest: 0   # How many of the latest snapshots to keep. Default: 0
+      hourly: 24  # How many hours to keep hourly snapshots. Default: 0
+      daily: 7    # How many days to keep daily snapshots. Default: 0
+      weekly: 5   # How many weeks to keep weekly snapshots. Default: 0
+      monthly: 0  # How many months to keep monthly snapshots. Default: 0
+      yearly: 0   # How many years to keep yearly snapshots. Default: 0
 
   # Example configuration for the sending side when replicating a dataset by
   # file. If the send output exceeds split_size a new segment is generated.
@@ -113,17 +105,7 @@ policies:
        suffix_length: 4
     destination:
        dir: /srv/outgoing
-    keep:
-      minimum: 4  # Keep at least this many snapshots regardless of retention
-                  # policy. One snapshot is always kept for replication
-                  # policies, regardless of this setting, to ensure incremental
-                  # send is possible without breaking the snapshot dependency.
-                  # Default: 0
-      hourly: 24  # How many hourly snapshots to keep. Default: 0
-      daily: 7    # How many daily snapshots to keep. Default: 0
-      weekly: 5   # How many weekly snapshots to keep. Default: 0
-      monthly: 0  # How many montly snapshots to keep. Default: 0
-      yearly: 0   # How many yearly snapshots to keep. Default: 0
+    keep: # See replicate policy example
 
   # Example configuration for the receiving side when replicating a dataset by
   # file. The file_prefix and label must match that of the sending side.
