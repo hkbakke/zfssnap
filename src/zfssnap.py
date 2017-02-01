@@ -271,12 +271,7 @@ class Snapshot(object):
 
     @property
     def label(self):
-        label = self.get_property(ZFSSNAP_LABEL)
-
-        if not label:
-            label = self.get_property('zol:zfssnap:label')
-
-        return label
+        return self.get_property(ZFSSNAP_LABEL)
 
     @label.setter
     def label(self, value):
