@@ -25,7 +25,7 @@ except ImportError:
     from scandir import scandir
 
 
-VERSION = '3.6.1'
+VERSION = '3.6.2'
 PROPERTY_PREFIX = 'zfssnap'
 ZFSSNAP_LABEL = '%s:label' % PROPERTY_PREFIX
 ZFSSNAP_REPL_STATUS = '%s:repl_status' % PROPERTY_PREFIX
@@ -224,7 +224,6 @@ class Snapshot(object):
         self.dataset_name, self.snapshot_name = name.split('@')
         self.host = host
         self._datetime = None
-        self._snapshot_name = None
         self._version = None
         self._properties = {}
         self.keep_reasons = []
@@ -240,7 +239,16 @@ class Snapshot(object):
             return self.name
 
     def destroy(self, recursive=False):
-        self.host.destroy_snapshot(self, recursive)
+        self.logger.info('Destroying snapshot %s', self.name)
+        args = ['destroy']
+
+        if recursive:
+            args.append('-r')
+
+        args.append(self.name)
+        cmd = self.host.get_cmd('zfs', args)
+        subprocess.check_call(cmd)
+        self.host.snapshot_cache_remove(self)
 
     @property
     def timestamp(self):
@@ -371,20 +379,17 @@ class Dataset(object):
         return bool(self.host.get_filesystem(self.name))
 
     def get_snapshots(self, label=None, refresh=False):
-        return self.host.get_snapshots(label=label, dataset=self,
-                                       refresh=refresh)
+        for snapshot in self.host.get_snapshots_cached(refresh):
+            if snapshot.dataset_name != self.name:
+                continue
+            if label and snapshot.label != label:
+                continue
+            yield snapshot
 
-    def get_snapshot(self, name):
-        full_name = '%s@%s' % (self.name, name)
-        snapshot = self.host.get_snapshot(dataset=self, name=full_name)
-
-        if not snapshot:
-            self.logger.debug('The snapshot \'%s\' was not found in cache. '
-                              'Trying to refresh', full_name)
-            snapshot = self.host.get_snapshot(dataset=self, name=full_name,
-                                              refresh=True)
-
-        return snapshot
+    def get_snapshot(self, name, refresh=False):
+        for snapshot in self.get_snapshots(refresh=refresh):
+            if snapshot.snapshot_name == name:
+                return snapshot
 
     @staticmethod
     def _write_metadata_file(name, segments, snapshot, base_snapshot=None):
@@ -546,7 +551,7 @@ class Dataset(object):
             file_prefix = 'zfssnap'
 
         _base_snapshot = self._get_base_snapshot(label, base_snapshot)
-        snapshot = self.create_snapshot(label, recursive=True)
+        snapshot = self.snapshot(label, recursive=True)
         prefix = os.path.join(dst_dir, '%s_%s-' % (file_prefix, snapshot.timestamp))
 
         segments_log_pattern = r'^creating\sfile\s.*(%s[a-z]{%s}).*$' % (prefix, suffix_length)
@@ -578,7 +583,7 @@ class Dataset(object):
 
     def replicate(self, dst_dataset, label, base_snapshot):
         _base_snapshot = self._get_base_snapshot(label, base_snapshot)
-        snapshot = self.create_snapshot(label, recursive=True)
+        snapshot = self.snapshot(label, recursive=True)
 
         self.logger.info('Replicating %s to %s', self.location,
                          dst_dataset.location)
@@ -605,13 +610,39 @@ class Dataset(object):
         dst_snapshot = dst_dataset.get_snapshot(snapshot.snapshot_name)
         dst_snapshot.repl_status = snapshot.repl_status
 
-    def create_snapshot(self, label, recursive=False, ts=None):
+    def snapshot(self, label, recursive=False, ts=None):
         if ts is None:
             ts = datetime.utcnow()
 
+        if label == '-':
+            raise SnapshotException('\'%s\' is not a valid label' % label)
+
         timestamp = ts.strftime('%Y%m%dT%H%M%SZ')
         name = '%s@zfssnap_%s' % (self.name, timestamp)
-        return self.host.create_snapshot(name, label, recursive)
+        self.logger.info('Creating snapshot %s (label: %s)', name, label)
+        properties = {
+            ZFSSNAP_LABEL: label,
+            ZFSSNAP_VERSION: VERSION
+        }
+
+        args = [
+            'snapshot',
+        ]
+
+        for key, value in properties.items():
+            args.extend([
+                '-o', '%s=%s' % (key, value),
+            ])
+
+        if recursive:
+            args.append('-r')
+
+        args.append(name)
+        cmd = self.host.get_cmd('zfs', args)
+        subprocess.check_call(cmd)
+        snapshot = Snapshot(self.host, name, properties=properties)
+        self.host.snapshot_cache_add(snapshot)
+        return snapshot
 
     @staticmethod
     def _get_delta_datetimes(start, end, delta):
@@ -815,46 +846,24 @@ class Host(object):
             else:
                 yield Dataset(host=self, name=name)
 
-    def create_snapshot(self, name, label, recursive=False):
-        self.logger.info('Creating snapshot %s (label: %s)', name, label)
+    def get_filesystem(self, fs_name):
+        first_fs = None
 
-        if label == '-':
-            raise SnapshotException('\'%s\' is not a valid label' % label)
+        # This slightly convoluted way to return the first filesystem tries to
+        # err out early without having to fetch the entire filesystem list if
+        # e.g. '*' is provided as fs_name.
+        for fs in self.get_filesystems(include=[fs_name]):
+            if first_fs:
+                raise ZFSSnapException('More than one dataset matches %s' % fs_name)
 
-        properties = {
-            ZFSSNAP_LABEL: label,
-            ZFSSNAP_VERSION: VERSION
-        }
+            first_fs = fs
 
-        args = [
-            'snapshot',
-        ]
+        return first_fs
 
-        for key, value in properties.items():
-            args.extend([
-                '-o', '%s=%s' % (key, value),
-            ])
-
-        if recursive:
-            args.append('-r')
-
-        args.append(name)
-        cmd = self.get_cmd('zfs', args)
-        subprocess.check_call(cmd)
-        snapshot = Snapshot(self, name, properties=properties)
+    def snapshot_cache_add(self, snapshot):
         self._snapshots.append(snapshot)
-        return snapshot
 
-    def destroy_snapshot(self, snapshot, recursive=False):
-        self.logger.info('Destroying snapshot %s', snapshot.name)
-        args = ['destroy']
-
-        if recursive:
-            args.append('-r')
-
-        args.append(snapshot.name)
-        cmd = self.get_cmd('zfs', args)
-        subprocess.check_call(cmd)
+    def snapshot_cache_remove(self, snapshot):
         self._snapshots.remove(snapshot)
 
     def _refresh_snapshots(self):
@@ -906,37 +915,12 @@ class Host(object):
 
         self._snapshots_refreshed = True
 
-    def get_snapshot(self, name, dataset, refresh=False):
-        for snapshot in self.get_snapshots(dataset=dataset, refresh=refresh):
-            if snapshot.name == name:
-                return snapshot
-
-    def get_snapshots(self, dataset=None, label=None, refresh=False):
+    def get_snapshots_cached(self, refresh=False):
         if refresh or not self._snapshots_refreshed:
             self._refresh_snapshots()
 
         for snapshot in self._snapshots:
-            if dataset and snapshot.dataset_name != dataset.name:
-                continue
-
-            if label and snapshot.label != label:
-                continue
-
             yield snapshot
-
-    def get_filesystem(self, fs_name):
-        first_fs = None
-
-        # This slightly convoluted way to return the first filesystem tries to
-        # err out early without having to fetch the entire filesystem list if
-        # e.g. '*' is provided as fs_name.
-        for fs in self.get_filesystems(include=[fs_name]):
-            if first_fs:
-                raise ZFSSnapException('More than one dataset matches %s' % fs_name)
-
-            first_fs = fs
-
-        return first_fs
 
 
 class ZFSSnap(object):
@@ -1056,7 +1040,7 @@ class ZFSSnap(object):
 
         for dataset in datasets:
             if not reset:
-                dataset.create_snapshot(label, recursive)
+                dataset.snapshot(label, recursive)
 
             dataset.enforce_retention(keep, label, recursive, reset)
 
@@ -1169,8 +1153,9 @@ class ZFSSnap(object):
         self._print_datasets(datasets)
 
         print('\nSNAPSHOTS')
-        snapshots = self.get_snapshots(label=label, datasets=datasets)
-        self._print_snapshots(snapshots)
+        for dataset in datasets:
+            snapshots = dataset.get_snapshots(label)
+            self._print_snapshots(snapshots)
 
     def _list_replicate_policy(self, policy):
         policy_config = self.config.get_policy(policy)
@@ -1192,13 +1177,13 @@ class ZFSSnap(object):
         self._print_datasets([dst_dataset])
 
         # Print source snapshots
-        src_snapshots = self.get_snapshots(label=label, datasets=[src_dataset])
+        src_snapshots = src_dataset.get_snapshots(label)
         print('\nSOURCE SNAPSHOTS')
         self._print_snapshots(src_snapshots)
 
         # Print destination snapshots
         if dst_dataset.exists:
-            dst_snapshots = self.get_snapshots(label=label, datasets=[dst_dataset])
+            dst_snapshots = dst_dataset.get_snapshots(label)
         else:
             dst_snapshots = iter([])
 
@@ -1244,15 +1229,6 @@ class ZFSSnap(object):
                                        (mode, policy_type))
         else:
             raise ZFSSnapException('%s is not a valid policy type' % policy_type)
-
-    @staticmethod
-    def get_snapshots(label=None, datasets=None):
-        if datasets is None:
-            datasets = []
-
-        for dataset in datasets:
-            for snapshot in dataset.get_snapshots(label=label):
-                yield snapshot
 
     @staticmethod
     def _print_snapshots(snapshots):
