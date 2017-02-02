@@ -1268,12 +1268,12 @@ class ZFSSnap(object):
 
     @staticmethod
     def _print_snapshots(snapshots):
-        for snapshot in snapshots:
+        for snapshot in sorted(snapshots, key=attrgetter('location')):
             print(snapshot.location)
 
     @staticmethod
     def _print_datasets(datasets):
-        for dataset in datasets:
+        for dataset in sorted(datasets, key=attrgetter('location')):
             print(dataset.location)
 
 
