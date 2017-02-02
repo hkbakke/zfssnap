@@ -25,7 +25,7 @@ except ImportError:
     from scandir import scandir
 
 
-VERSION = '3.6.3'
+VERSION = '3.6.4'
 PROPERTY_PREFIX = 'zfssnap'
 ZFSSNAP_LABEL = '%s:label' % PROPERTY_PREFIX
 ZFSSNAP_REPL_STATUS = '%s:repl_status' % PROPERTY_PREFIX
@@ -231,13 +231,6 @@ class Snapshot(object):
         if properties:
             self._properties = properties
 
-    @property
-    def location(self):
-        if self.host.name:
-            return '%s: %s' % (self.host.name, self.name)
-        else:
-            return self.name
-
     def destroy(self, recursive=False):
         self.logger.info('Destroying snapshot %s', self.name)
         args = ['destroy']
@@ -345,13 +338,6 @@ class Dataset(object):
         self.name = name
         self.host = host
         self.logger = logging.getLogger(__name__)
-
-    @property
-    def location(self):
-        if self.host.name:
-            return '%s: %s' % (self.host.name, self.name)
-        else:
-            return self.name
 
     def get_latest_repl_snapshot(self, label=None, status='success',
                                  refresh=False):
@@ -585,8 +571,8 @@ class Dataset(object):
         _base_snapshot = self._get_base_snapshot(label, base_snapshot)
         snapshot = self.snapshot(label, recursive=True)
 
-        self.logger.info('Replicating %s to %s', self.location,
-                         dst_dataset.location)
+        self.logger.info('Replicating %s to %s', self.name,
+                         dst_dataset.name)
 
         send_cmd = self._get_send_cmd(snapshot, _base_snapshot)
         receive_cmd = self._get_receive_cmd(dst_dataset)
@@ -750,6 +736,10 @@ class Dataset(object):
                     {s for s in self._get_yearly_snapshots(snapshots, keep['yearly'])})
 
         for snapshot in snapshots:
+            # There is no point in keeping failed replication snapshots
+            if replication and snapshot.repl_status != 'success':
+                keep_snapshots.discard(snapshot)
+
             if snapshot in keep_snapshots:
                 self.logger.debug('Keeping snapshot %s (reasons: %s)',
                                   snapshot.name, ', '.join(snapshot.keep_reasons))
@@ -1136,95 +1126,77 @@ class ZFSSnap(object):
                                       replication=True)
         self._release_lock()
 
+    @staticmethod
+    def _print_header(text):
+        print('\n%s' % text)
+        print('-' * len(text))
+
+    def _print_snapshots(self, datasets, label, header='SNAPSHOTS'):
+        self._print_header(header)
+        for dataset in sorted(datasets, key=attrgetter('name')):
+            print('%s:' % dataset.name)
+            snapshots = dataset.get_snapshots(label)
+            for snapshot in sorted(snapshots, key=attrgetter('name')):
+                print('\t%s' % snapshot.snapshot_name)
+
+    def _print_config(self, config):
+        self._print_header('POLICY CONFIG')
+        print(yaml.dump(config, default_flow_style=False))
+
     def _list_snapshot_policy(self, policy):
         policy_config = self.config.get_policy(policy)
-        host = Host(cmds=self.config.get_cmds())
         label = policy_config.get('label', policy)
-
-        # Store the dataset in a list as the iterator is consumed several
-        # times below.
+        host = Host(cmds=self.config.get_cmds())
         datasets = [
             d for d in host.get_filesystems(
                 include=policy_config.get('include', None),
                 exclude=policy_config.get('exclude', None))
         ]
-
-        print('DATASETS')
-        self._print_datasets(datasets)
-
-        print('\nSNAPSHOTS')
-        for dataset in datasets:
-            snapshots = dataset.get_snapshots(label)
-            self._print_snapshots(snapshots)
+        self._print_config(policy_config)
+        self._print_snapshots(datasets, label)
 
     def _list_send_to_file_policy(self, policy):
         policy_config = self.config.get_policy(policy)
         label = policy_config.get('label', policy)
-
-        # Print source datasets
         src_host = Host(cmds=self.config.get_cmds())
         src_dataset = src_host.get_filesystem(policy_config['source']['dataset'])
-        print('SOURCE DATASET')
-        self._print_datasets([src_dataset])
-
-        # Print source snapshots
-        src_snapshots = src_dataset.get_snapshots(label)
-        print('\nSOURCE SNAPSHOTS')
-        self._print_snapshots(src_snapshots)
+        self._print_config(policy_config)
+        self._print_snapshots([src_dataset], label, 'SOURCE SNAPSHOTS')
 
     def _list_receive_from_file_policy(self, policy):
         policy_config = self.config.get_policy(policy)
         label = policy_config.get('label', policy)
-
-        # Print destination datasets
         dst_host = Host(cmds=self.config.get_cmds())
         dst_dataset = Dataset(dst_host, policy_config['destination']['dataset'])
-        print('\nDESTINATION DATASET')
-        self._print_datasets([dst_dataset])
 
-        # Print destination snapshots
         if dst_dataset.exists:
-            dst_snapshots = dst_dataset.get_snapshots(label)
+            dst_datasets = [dst_dataset]
         else:
-            dst_snapshots = iter([])
+            dst_datasets = []
 
-        print('\nDESTINATION SNAPSHOTS')
-        self._print_snapshots(dst_snapshots)
-        policy_config = self.config.get_policy(policy)
-        label = policy_config.get('label', policy)
+        self._print_config(policy_config)
+        self._print_snapshots(dst_datasets, label, 'DESTINATION SNAPSHOTS')
 
     def _list_replicate_policy(self, policy):
         policy_config = self.config.get_policy(policy)
         label = policy_config.get('label', policy)
-
-        # Print source datasets
         src_host = Host(cmds=self.config.get_cmds())
         src_dataset = src_host.get_filesystem(policy_config['source']['dataset'])
-        print('SOURCE DATASET')
-        self._print_datasets([src_dataset])
 
-        # Print destination datasets
         dst_host = Host(
             ssh_user=policy_config['destination'].get('ssh_user', None),
             name=policy_config['destination'].get('host', None),
             cmds=policy_config['destination'].get('cmds', None))
         dst_dataset = Dataset(dst_host, policy_config['destination']['dataset'])
-        print('\nDESTINATION DATASET')
-        self._print_datasets([dst_dataset])
 
-        # Print source snapshots
-        src_snapshots = src_dataset.get_snapshots(label)
-        print('\nSOURCE SNAPSHOTS')
-        self._print_snapshots(src_snapshots)
-
-        # Print destination snapshots
         if dst_dataset.exists:
-            dst_snapshots = dst_dataset.get_snapshots(label)
+            dst_datasets = [dst_dataset]
         else:
-            dst_snapshots = iter([])
+            dst_datasets = []
 
-        print('\nDESTINATION SNAPSHOTS')
-        self._print_snapshots(dst_snapshots)
+        self._print_config(policy_config)
+        self._print_snapshots([src_dataset], label, 'SOURCE SNAPSHOTS')
+        self._print_snapshots(dst_datasets, label, 'DESTINATION SNAPSHOTS')
 
     def execute_policy(self, policy, mode, reset=False, base_snapshot=None):
         exec_mode = 'exec'
@@ -1265,16 +1237,6 @@ class ZFSSnap(object):
                                        (mode, policy_type))
         else:
             raise ZFSSnapException('%s is not a valid policy type' % policy_type)
-
-    @staticmethod
-    def _print_snapshots(snapshots):
-        for snapshot in sorted(snapshots, key=attrgetter('location')):
-            print(snapshot.location)
-
-    @staticmethod
-    def _print_datasets(datasets):
-        for dataset in sorted(datasets, key=attrgetter('location')):
-            print(dataset.location)
 
 
 def main():

@@ -11,18 +11,6 @@ class TestSnapshot(object):
         name = 'dev-1/test-1@zfssnap_20170119T094102Z'
         return Snapshot(host, name)
 
-    def test_location_property_local_host(self):
-        host = Host()
-        name = 'dev-1/test-1@zfssnap_20170119T094102Z'
-        snapshot = Snapshot(host, name)
-        assert snapshot.location == 'dev-1/test-1@zfssnap_20170119T094102Z'
-
-    def test_location_property_remote_host(self):
-        host = Host(name='remote')
-        name = 'dev-1/test-1@zfssnap_20170119T094102Z'
-        snapshot = Snapshot(host, name)
-        assert snapshot.location == 'remote: dev-1/test-1@zfssnap_20170119T094102Z'
-
     def test_timestamp_property(self, snapshot):
         assert snapshot.timestamp == '20170119T094102Z'
 

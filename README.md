@@ -60,7 +60,7 @@ Remove all snapshots for a policy or re-initialize a replication policy
 
     ./zfssnap.py --policy snapshot-all --reset
 
-List all snapshots belonging to a policy
+List config, datasets and snapshots belonging to a policy
 
     ./zfssnap.py --policy snapshot-all --list
 List all options
