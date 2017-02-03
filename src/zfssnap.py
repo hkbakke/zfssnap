@@ -1215,7 +1215,7 @@ class ZFSSnap(object):
         src_host = Host(policy_config['cmds'])
         src_dataset = src_host.get_filesystem(policy_config['source']['dataset'])
         self._print_config(policy_config)
-        self._print_datasets([src_dataset])
+        self._print_datasets([src_dataset], 'SOURCE DATASET')
         self._print_snapshots([src_dataset], label, 'SOURCE SNAPSHOTS')
 
     def _list_receive_from_file_policy(self, policy):
@@ -1230,7 +1230,7 @@ class ZFSSnap(object):
             dst_datasets = []
 
         self._print_config(policy_config)
-        self._print_datasets(dst_datasets)
+        self._print_datasets(dst_datasets, 'DESTINATION DATASET')
         self._print_snapshots(dst_datasets, label, 'DESTINATION SNAPSHOTS')
 
     def _list_replicate_policy(self, policy):
@@ -1251,9 +1251,9 @@ class ZFSSnap(object):
             dst_datasets = []
 
         self._print_config(policy_config)
-        self._print_datasets([src_dataset])
-        self._print_datasets(dst_datasets)
+        self._print_datasets([src_dataset], 'SOURCE DATASET')
         self._print_snapshots([src_dataset], label, 'SOURCE SNAPSHOTS')
+        self._print_datasets(dst_datasets, 'DESTINATION DATASET')
         self._print_snapshots(dst_datasets, label, 'DESTINATION SNAPSHOTS')
 
     def execute_policy(self, policy, mode, reset=False, base_snapshot=None):
