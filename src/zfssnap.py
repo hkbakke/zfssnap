@@ -270,6 +270,7 @@ class Config(object):
                 'destination': {
                     'host': None,
                     'ssh_user': None,
+                    'read_only': False,
                     'cmds': {
                         'zfs': self.global_defaults['cmds']['zfs'],
                     }
@@ -291,7 +292,10 @@ class Config(object):
                     'zfs': self.global_defaults['cmds']['zfs'],
                     'cat': self.global_defaults['cmds']['cat']
                 },
-                'file_prefix': 'zfssnap'
+                'file_prefix': 'zfssnap',
+                'destination': {
+                    'read_only': False
+                }
             })
 
         self._validate_keep(user_config.get('keep', {}))
@@ -367,6 +371,14 @@ class Snapshot(object):
     @label.setter
     def label(self, value):
         self.set_property(ZFSSNAP_LABEL, value)
+
+    @property
+    def read_only(self):
+        return self.get_property('readonly')
+
+    @read_only.setter
+    def read_only(self, value):
+        self.set_property('readonly', value)
 
     def _refresh_properties(self):
         self.logger.debug('Refreshing zfs properties cache for %s', self.name)
@@ -577,7 +589,7 @@ class Dataset(object):
 
         return lines
 
-    def receive_from_file(self, label, src_dir, metadata):
+    def receive_from_file(self, label, src_dir, metadata, read_only=False):
         self.logger.info('Selecting %s', metadata.path)
 
         # Make sure the cache is refreshed as the snapshot count might have
@@ -609,6 +621,10 @@ class Dataset(object):
 
         #dst_snapshot = self.get_snapshot(metadata.snapshot)
         dst_snapshot.repl_status = 'success'
+
+        if read_only:
+            self.logger.info('Marking %s read only' % dst_snapshot.name)
+            dst_snapshot.read_only = 'on'
 
         # Cleanup files after marking the sync as success as we don't
         # really care if this goes well for the sake of sync integrity
@@ -647,7 +663,7 @@ class Dataset(object):
         # See comment in replicate()
         snapshot.repl_status = 'success'
 
-    def replicate(self, dst_dataset, label, base_snapshot):
+    def replicate(self, dst_dataset, label, base_snapshot, read_only=False):
         _base_snapshot = self._get_base_snapshot(label, base_snapshot)
         snapshot = self.snapshot(label, recursive=True)
 
@@ -671,6 +687,10 @@ class Dataset(object):
         # It is therefore important to ensure that at least one replication
         # snapshot with repl_status success exists at all times.
         snapshot.repl_status = 'success'
+
+        if read_only:
+            self.logger.info('Marking %s read only' % dst_snapshot.name)
+            dst_snapshot.read_only = 'on'
 
         # For completeness also set repl_status to success on destination.
         dst_snapshot = dst_dataset.get_snapshot(snapshot.snapshot_name)
@@ -1102,6 +1122,7 @@ class ZFSSnap(object):
             cmds=policy_config['destination']['cmds'])
         dst_dataset = Dataset(dst_host, policy_config['destination']['dataset'])
         keep = policy_config['keep']
+        read_only = policy_config['destination']['read_only']
 
         self._aquire_lock()
 
@@ -1112,7 +1133,7 @@ class ZFSSnap(object):
                 self.logger.warning('Destroying destination dataset')
                 dst_dataset.destroy(recursive=True)
         else:
-            src_dataset.replicate(dst_dataset, label, base_snapshot)
+            src_dataset.replicate(dst_dataset, label, base_snapshot, read_only)
 
         src_dataset.enforce_retention(keep, label, recursive=True, reset=reset,
                                       replication=True)
@@ -1125,6 +1146,7 @@ class ZFSSnap(object):
         dst_dataset = Dataset(dst_host, policy_config['destination']['dataset'])
         src_dir = policy_config['source']['dir']
         file_prefix = policy_config.get('file_prefix', None)
+        read_only = policy_config['destination']['read_only']
 
         self._aquire_lock()
 
@@ -1139,7 +1161,8 @@ class ZFSSnap(object):
                 metadata_files = self._get_metadata_files(src_dir, label, file_prefix)
 
                 for metadata in sorted(metadata_files, key=attrgetter('datetime')):
-                    dst_dataset.receive_from_file(label, src_dir, metadata)
+                    dst_dataset.receive_from_file(label, src_dir, metadata,
+                                                  read_only)
             except SegmentMissingException as e:
                 self.logger.info(e)
 
