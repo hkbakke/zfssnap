@@ -7,7 +7,10 @@ from zfssnap import Host, Snapshot, ZFSSNAP_REPL_STATUS, ZFSSNAP_LABEL, ZFSSNAP_
 class TestSnapshot(object):
     @pytest.fixture
     def snapshot(self):
-        host = Host()
+        cmds = {
+            'zfs': 'zfs'
+        }
+        host = Host(cmds)
         name = 'dev-1/test-1@zfssnap_20170119T094102Z'
         return Snapshot(host, name)
 

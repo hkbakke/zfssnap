@@ -54,6 +54,9 @@ class SnapshotException(Exception):
 class ZFSSnapException(Exception):
     pass
 
+class ConfigException(Exception):
+    pass
+
 class SegmentMissingException(Exception):
     pass
 
@@ -201,20 +204,106 @@ class Config(object):
             config_file = '/etc/zfssnap/zfssnap.yml'
 
         with open(config_file) as f:
-            self._config = yaml.load(f)
+            self.config = yaml.load(f)
+
+        self.global_defaults = self._get_global_defaults()
+
+    def _merge(self, d1, d2):
+        """Merges dictionary d2 into d1. Modifies d1 inplace"""
+        for k in d2:
+            if k in d1 and isinstance(d1[k], dict) and isinstance(d2[k], dict):
+                self._merge(d1[k], d2[k])
+            else:
+                d1[k] = d2[k]
+
+        return d1
+
+    def _get_global_defaults(self):
+        user_defaults = self.config.get('defaults', {})
+        defaults = {
+            'cmds': {
+                'ssh': '/usr/bin/ssh',
+                'zfs': '/sbin/zfs',
+                'split': '/usr/bin/split',
+                'cat': '/bin/cat'
+            },
+            'keep': {
+                'latest': 0,
+                'hourly': 0,
+                'daily': 0,
+                'weekly': 0,
+                'monthly': 0,
+                'yearly': 0
+            }
+        }
+
+        return self._merge(defaults, user_defaults)
 
     def get_policy(self, policy):
         try:
-            return self._config['policies'][policy]
+            user_config = self.config['policies'][policy]
         except KeyError:
-            raise ZFSSnapException(
+            raise ConfigException(
                 'The policy \'%s\' is not defined' % policy)
 
-    def get_cmd(self, cmd):
-        return self._config['cmds'][cmd]
+        policy_type = user_config['type']
+        defaults = {
+            'keep': self.global_defaults['keep'],
+            'label': user_config.get('label', policy)
+        }
 
-    def get_cmds(self):
-        return self._config.get('cmds', {})
+        if policy_type == 'snapshot':
+            defaults.update({
+                'cmds': {
+                    'zfs': self.global_defaults['cmds']['zfs']
+                },
+                'recursive': False
+            })
+        elif policy_type == 'replicate':
+            defaults.update({
+                'source': {
+                    'cmds': {
+                        'zfs': self.global_defaults['cmds']['zfs'],
+                        'ssh': self.global_defaults['cmds']['ssh']
+                    }
+                },
+                'destination': {
+                    'host': None,
+                    'ssh_user': None,
+                    'cmds': {
+                        'zfs': self.global_defaults['cmds']['zfs'],
+                    }
+                }
+            })
+        elif policy_type == 'send_to_file':
+            defaults.update({
+                'cmds': {
+                    'zfs': self.global_defaults['cmds']['zfs'],
+                    'split': self.global_defaults['cmds']['split']
+                },
+                'file_prefix': 'zfssnap',
+                'suffix_length': 4,
+                'split_size': '1G'
+            })
+        elif policy_type == 'receive_from_file':
+            defaults.update({
+                'cmds': {
+                    'zfs': self.global_defaults['cmds']['zfs'],
+                    'cat': self.global_defaults['cmds']['cat']
+                },
+                'file_prefix': 'zfssnap'
+            })
+
+        self._validate_keep(user_config.get('keep', {}))
+        return self._merge(defaults, user_config)
+
+    def _validate_keep(self, keep):
+        for key, value in keep.items():
+            if key not in self.global_defaults['keep']:
+                raise ConfigException('%s is not a valid keep interval' % key)
+            elif value < 0:
+                raise ConfigException(
+                    '%s is set to a negative value (%s)' % (key, value))
 
 
 class Snapshot(object):
@@ -441,13 +530,7 @@ class Dataset(object):
         send_args.append(snapshot.name)
         return self.host.get_cmd('zfs', send_args)
 
-    def _get_split_cmd(self, prefix, split_size, suffix_length):
-        if suffix_length is None:
-            suffix_length = 4
-
-        if split_size is None:
-            split_size = '1G'
-
+    def _get_split_cmd(self, prefix, split_size='1G', suffix_length=4):
         self.logger.info('Splitting at segment size %s', split_size)
         split_args = [
             '--bytes=%s' % split_size,
@@ -531,11 +614,8 @@ class Dataset(object):
         # really care if this goes well for the sake of sync integrity
         self.cleanup_sync_files(metadata, src_dir)
 
-    def send_to_file(self, label, dst_dir, file_prefix=None, suffix_length=None,
+    def send_to_file(self, label, dst_dir, file_prefix='zfssnap', suffix_length=None,
                      split_size=None, base_snapshot=None):
-        if file_prefix is None:
-            file_prefix = 'zfssnap'
-
         _base_snapshot = self._get_base_snapshot(label, base_snapshot)
         snapshot = self.snapshot(label, recursive=True)
         prefix = os.path.join(dst_dir, '%s_%s-' % (file_prefix, snapshot.timestamp))
@@ -735,41 +815,28 @@ class Dataset(object):
                 keep_snapshots.update(
                     {s for s in self._get_yearly_snapshots(snapshots, keep['yearly'])})
 
-        for snapshot in snapshots:
+        # Sort snapshots for less messy log output
+        for snapshot in sorted(snapshots, key=attrgetter('datetime'),
+                               reverse=True):
             # There is no point in keeping failed replication snapshots
             if replication and snapshot.repl_status != 'success':
                 keep_snapshots.discard(snapshot)
 
             if snapshot in keep_snapshots:
-                self.logger.debug('Keeping snapshot %s (reasons: %s)',
-                                  snapshot.name, ', '.join(snapshot.keep_reasons))
+                self.logger.info('Keeping snapshot %s (reasons: %s)',
+                                 snapshot.name, ', '.join(snapshot.keep_reasons))
             else:
                 snapshot.destroy(recursive)
 
 
 class Host(object):
-    def __init__(self, ssh_user=None, name=None, cmds=None):
-        if cmds is None:
-            cmds = {}
-
+    def __init__(self, cmds, ssh_user=None, name=None):
         self.logger = logging.getLogger(__name__)
-        self.cmds = self._validate_cmds(cmds)
+        self.cmds = cmds
         self.ssh_user = ssh_user
         self.name = name
         self._snapshots = []
         self._snapshots_refreshed = False
-
-    @staticmethod
-    def _validate_cmds(cmds):
-        valid_cmds = {
-            'zfs': 'zfs',
-            'ssh': 'ssh',
-            'split': 'split',
-            'cat': 'cat'
-        }
-
-        valid_cmds.update({k: v for k, v in cmds.items() if v is not None})
-        return valid_cmds
 
     def get_cmd(self, name, args=None):
         cmd_path = self.cmds.get(name, None)
@@ -961,24 +1028,6 @@ class ZFSSnap(object):
         fcntl.flock(self._lock, fcntl.LOCK_UN)
         self.logger.debug('Lock released')
 
-    def _validate_keep(self, keep):
-        valid_keep = {
-            'latest': 0,
-            'hourly': 0,
-            'daily': 0,
-            'weekly': 0,
-            'monthly': 0,
-            'yearly': 0
-        }
-
-        for key, value in valid_keep.items():
-            in_value = keep.get(key, value)
-            if in_value > 0:
-                valid_keep[key] = in_value
-
-        self.logger.debug('Keep values: %s', valid_keep)
-        return valid_keep
-
     def _get_metadata_files(self, src_dir, label, file_prefix=None):
         if file_prefix is None:
             file_prefix = 'zfssnap'
@@ -1015,13 +1064,13 @@ class ZFSSnap(object):
             time.sleep(sleep)
 
         policy_config = self.config.get_policy(policy)
-        label = policy_config.get('label', policy)
-        host = Host(cmds=self.config.get_cmds())
+        label = policy_config['label']
+        host = Host(cmds=policy_config['cmds'])
         datasets = host.get_filesystems(
             include=policy_config.get('include', None),
             exclude=policy_config.get('exclude', None))
-        recursive = policy_config.get('recursive', False)
-        keep = self._validate_keep(policy_config.get('keep', {}))
+        recursive = policy_config['recursive']
+        keep = policy_config['keep']
         self._aquire_lock()
 
         if reset:
@@ -1044,15 +1093,15 @@ class ZFSSnap(object):
             time.sleep(sleep)
 
         policy_config = self.config.get_policy(policy)
-        label = policy_config.get('label', policy)
-        src_host = Host(cmds=self.config.get_cmds())
+        label = policy_config['label']
+        src_host = Host(policy_config['source']['cmds'])
         src_dataset = src_host.get_filesystem(policy_config['source']['dataset'])
         dst_host = Host(
-            ssh_user=policy_config['destination'].get('ssh_user', None),
-            name=policy_config['destination'].get('host', None),
-            cmds=policy_config['destination'].get('cmds', None))
+            ssh_user=policy_config['destination']['ssh_user'],
+            name=policy_config['destination']['host'],
+            cmds=policy_config['destination']['cmds'])
         dst_dataset = Dataset(dst_host, policy_config['destination']['dataset'])
-        keep = self._validate_keep(policy_config.get('keep', {}))
+        keep = policy_config['keep']
 
         self._aquire_lock()
 
@@ -1071,8 +1120,8 @@ class ZFSSnap(object):
 
     def _run_receive_from_file_policy(self, policy, reset=False):
         policy_config = self.config.get_policy(policy)
-        label = policy_config.get('label', policy)
-        dst_host = Host(cmds=self.config.get_cmds())
+        label = policy_config['label']
+        dst_host = Host(policy_config['cmds'])
         dst_dataset = Dataset(dst_host, policy_config['destination']['dataset'])
         src_dir = policy_config['source']['dir']
         file_prefix = policy_config.get('file_prefix', None)
@@ -1104,14 +1153,14 @@ class ZFSSnap(object):
             time.sleep(sleep)
 
         policy_config = self.config.get_policy(policy)
-        label = policy_config.get('label', policy)
-        src_host = Host(cmds=self.config.get_cmds())
+        label = policy_config['label']
+        src_host = Host(policy_config['cmds'])
         src_dataset = src_host.get_filesystem(policy_config['source']['dataset'])
         dst_dir = policy_config['destination']['dir']
-        file_prefix = policy_config.get('file_prefix', None)
-        suffix_length = policy_config['source'].get('suffix_length', None)
-        split_size = policy_config['source'].get('split_size', None)
-        keep = self._validate_keep(policy_config.get('keep', {}))
+        file_prefix = policy_config['file_prefix']
+        suffix_length = policy_config['suffix_length']
+        split_size = policy_config['split_size']
+        keep = policy_config['keep']
 
         self._aquire_lock()
 
@@ -1149,8 +1198,8 @@ class ZFSSnap(object):
 
     def _list_snapshot_policy(self, policy):
         policy_config = self.config.get_policy(policy)
-        label = policy_config.get('label', policy)
-        host = Host(cmds=self.config.get_cmds())
+        label = policy_config['label']
+        host = Host(policy_config['cmds'])
         datasets = [
             d for d in host.get_filesystems(
                 include=policy_config.get('include', None),
@@ -1162,8 +1211,8 @@ class ZFSSnap(object):
 
     def _list_send_to_file_policy(self, policy):
         policy_config = self.config.get_policy(policy)
-        label = policy_config.get('label', policy)
-        src_host = Host(cmds=self.config.get_cmds())
+        label = policy_config['label']
+        src_host = Host(policy_config['cmds'])
         src_dataset = src_host.get_filesystem(policy_config['source']['dataset'])
         self._print_config(policy_config)
         self._print_datasets([src_dataset])
@@ -1171,8 +1220,8 @@ class ZFSSnap(object):
 
     def _list_receive_from_file_policy(self, policy):
         policy_config = self.config.get_policy(policy)
-        label = policy_config.get('label', policy)
-        dst_host = Host(cmds=self.config.get_cmds())
+        label = policy_config['label']
+        dst_host = Host(policy_config['cmds'])
         dst_dataset = Dataset(dst_host, policy_config['destination']['dataset'])
 
         if dst_dataset.exists:
@@ -1186,14 +1235,14 @@ class ZFSSnap(object):
 
     def _list_replicate_policy(self, policy):
         policy_config = self.config.get_policy(policy)
-        label = policy_config.get('label', policy)
-        src_host = Host(cmds=self.config.get_cmds())
+        label = policy_config['label']
+        src_host = Host(policy_config['source']['cmds'])
         src_dataset = src_host.get_filesystem(policy_config['source']['dataset'])
 
         dst_host = Host(
-            ssh_user=policy_config['destination'].get('ssh_user', None),
-            name=policy_config['destination'].get('host', None),
-            cmds=policy_config['destination'].get('cmds', None))
+            ssh_user=policy_config['destination']['ssh_user'],
+            name=policy_config['destination']['host'],
+            cmds=policy_config['destination']['cmds'])
         dst_dataset = Dataset(dst_host, policy_config['destination']['dataset'])
 
         if dst_dataset.exists:
@@ -1313,6 +1362,12 @@ def main():
         return 11
     except SnapshotException:
         return 12
+    except SegmentMissingException:
+        return 13
+    except ConfigException:
+        return 14
+    except MetadataFileException:
+        return 15
     except KeyboardInterrupt:
         return 130
 

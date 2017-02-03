@@ -1,11 +1,22 @@
-cmds:
-  ssh: /usr/bin/ssh
-  zfs: /sbin/zfs
-  split: /usr/bin/split
-  cat: /bin/cat
+# Override global defaults for all policies
+#defaults:
+#  cmds:
+#    ssh: /usr/bin/ssh
+#    zfs: /sbin/zfs
+#    split: /usr/bin/split
+#    cat: /bin/cat
+#  keep:
+#    latest: 0
+#    hourly: 0
+#    daily: 0
+#    weekly: 0
+#    monthly: 0
+#    yearly: 0
 
-# The policies have reasonable names in this file, but you can name them as
-# you please, and have as many as you want.
+
+#
+# EXAMPLES
+#
 
 policies:
   all-but-backup:
@@ -19,10 +30,19 @@ policies:
       - '*'
     exclude:
       - 'pool-2/backup'
-    keep: # See replication policy example
+
+    # If keep is not set global defaults are used
+    keep:
+      hourly: 24
+      daily: 7
+      weekly: 5
 
     # If not set recursive defaults to 'no'
-    recursive: no
+    #recursive: no
+
+    # Override cmd paths
+    #cmds:
+    #  zfs: /some/path
 
   # A minimal config version that snapshots all datasets with no excludes
   # non-recursively
@@ -43,7 +63,7 @@ policies:
     keep:
       daily: 31
 
-  recursive-1:
+  recursive:
     # Here we are doing recursive snapshots on the top level, excluding all
     # lower level datasets as they are included in the top level recursive
     # snapshots.
@@ -63,6 +83,9 @@ policies:
     type: replicate
     source:
       dataset: 'pool-1/vms-1'
+      #cmds:
+      #  zfs: /path/to/zfs
+      #  ssh: /path/to/ssh
     destination:
       dataset: 'pool-2/backup/vms-1'
 
@@ -72,17 +95,14 @@ policies:
 
       # Leave unset if local destination dataset
       host: remotehost
-      cmds:
-        zfs: /sbin/zfs
+      #cmds:
+      #  zfs: /path/to/zfs
     keep:
       # One snapshot is always kept for replication policies to ensure
       # incremental send is possible, regardless of these settings.
-      latest: 0   # How many of the latest snapshots to keep. Default: 0
-      hourly: 24  # How many hours to keep hourly snapshots. Default: 0
-      daily: 7    # How many days to keep daily snapshots. Default: 0
-      weekly: 5   # How many weeks to keep weekly snapshots. Default: 0
-      monthly: 0  # How many months to keep monthly snapshots. Default: 0
-      yearly: 0   # How many years to keep yearly snapshots. Default: 0
+      hourly: 24
+      daily: 7
+      weekly: 5
 
   # Example configuration for the sending side when replicating a dataset by
   # file. If the send output exceeds split_size a new segment is generated.
@@ -95,17 +115,25 @@ policies:
 
     # If not set file_prefix defaults to 'zfssnap'
     file_prefix: xyz
+
+    # If not set split_size defaults to '1G'
+    split_size: 512M
+
+    # If not set suffix_length defaults to 4
+    suffix_length: 4
     source:
        dataset: 'pool-1/vms-1'
-
-       # If not set split_size defaults to '1G'
-       split_size: 1G
-
-       # If not set suffix_length defaults to 4
-       suffix_length: 4
     destination:
        dir: /srv/outgoing
-    keep: # See replicate policy example
+    #cmds:
+    #  zfs: /path/to/zfs
+    #  split: /path/to/split
+    keep:
+      # One snapshot is always kept for replication policies to ensure
+      # incremental send is possible, regardless of these settings.
+      latest: 4
+      hourly: 24
+      daily: 31
 
   # Example configuration for the receiving side when replicating a dataset by
   # file. The file_prefix and label must match that of the sending side.
@@ -113,9 +141,12 @@ policies:
   # sending side.
   receive-from-file:
     type: receive_from_file
-      label: replicate-disconnected
-      file_prefix: xyz
-      source:
-        dir: /srv/incoming
-      destination:
-        dataset: 'pool-1/backup/test-1'
+    label: replicate-disconnected
+    file_prefix: xyz
+    source:
+      dir: /srv/incoming
+    destination:
+      dataset: 'pool-1/backup/test-1'
+    #cmds:
+    #  zfs: /path/to/zfs
+    #  cat: /path/to/cat
