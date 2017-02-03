@@ -1131,13 +1131,17 @@ class ZFSSnap(object):
         print('\n%s' % text)
         print('-' * len(text))
 
+    def _print_datasets(self, datasets, header='DATASETS'):
+        self._print_header(header)
+        for dataset in sorted(datasets, key=attrgetter('name')):
+            print(dataset.name)
+
     def _print_snapshots(self, datasets, label, header='SNAPSHOTS'):
         self._print_header(header)
         for dataset in sorted(datasets, key=attrgetter('name')):
-            print('%s:' % dataset.name)
             snapshots = dataset.get_snapshots(label)
             for snapshot in sorted(snapshots, key=attrgetter('name')):
-                print('\t%s' % snapshot.snapshot_name)
+                print(snapshot.name)
 
     def _print_config(self, config):
         self._print_header('POLICY CONFIG')
@@ -1153,6 +1157,7 @@ class ZFSSnap(object):
                 exclude=policy_config.get('exclude', None))
         ]
         self._print_config(policy_config)
+        self._print_datasets(datasets)
         self._print_snapshots(datasets, label)
 
     def _list_send_to_file_policy(self, policy):
@@ -1161,6 +1166,7 @@ class ZFSSnap(object):
         src_host = Host(cmds=self.config.get_cmds())
         src_dataset = src_host.get_filesystem(policy_config['source']['dataset'])
         self._print_config(policy_config)
+        self._print_datasets([src_dataset])
         self._print_snapshots([src_dataset], label, 'SOURCE SNAPSHOTS')
 
     def _list_receive_from_file_policy(self, policy):
@@ -1175,6 +1181,7 @@ class ZFSSnap(object):
             dst_datasets = []
 
         self._print_config(policy_config)
+        self._print_datasets(dst_datasets)
         self._print_snapshots(dst_datasets, label, 'DESTINATION SNAPSHOTS')
 
     def _list_replicate_policy(self, policy):
@@ -1195,6 +1202,8 @@ class ZFSSnap(object):
             dst_datasets = []
 
         self._print_config(policy_config)
+        self._print_datasets([src_dataset])
+        self._print_datasets(dst_datasets)
         self._print_snapshots([src_dataset], label, 'SOURCE SNAPSHOTS')
         self._print_snapshots(dst_datasets, label, 'DESTINATION SNAPSHOTS')
 
