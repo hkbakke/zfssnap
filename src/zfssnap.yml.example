@@ -95,6 +95,11 @@ policies:
 
       # Leave unset if local destination dataset
       host: remotehost
+
+      # The destination dataset is made read only by default as it really doesn't
+      # make sense to allow writes as long as it is replicated to
+      #read_only: yes
+
       #cmds:
       #  zfs: /path/to/zfs
     keep:
@@ -147,6 +152,7 @@ policies:
       dir: /srv/incoming
     destination:
       dataset: 'pool-1/backup/test-1'
+      #read_only: yes
     #cmds:
     #  zfs: /path/to/zfs
     #  cat: /path/to/cat
