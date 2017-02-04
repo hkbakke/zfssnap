@@ -603,8 +603,8 @@ class Filesystem(Dataset):
 
     def enforce_retention(self, keep, label=None, recursive=False, reset=False,
                           replication=False):
-        # Make the list of snapshots an immutable tuple to ensure it's not
-        # getting changed while it's passed around.
+        # Make the list of snapshots a tuple to ensure it's not getting
+        # changed while it's passed around.
         snapshots = tuple(s for s in self.get_snapshots(label))
         keep_snapshots = set()
 
@@ -640,17 +640,17 @@ class Filesystem(Dataset):
                     {s for s in self._get_yearly_snapshots(snapshots, keep['yearly'])})
 
         # Sort snapshots for less messy log output
-        for snapshot in sorted(snapshots, key=attrgetter('datetime'),
-                               reverse=True):
+        for snapshot in sorted(snapshots, key=attrgetter('datetime'), reverse=True):
             # There is no point in keeping failed replication snapshots
             if replication and snapshot.repl_status != 'success':
                 keep_snapshots.discard(snapshot)
 
-            if snapshot in keep_snapshots:
-                self.logger.info('Keeping snapshot %s (reasons: %s)',
-                                 snapshot.name, ', '.join(snapshot.keep_reasons))
-            else:
+            if snapshot not in keep_snapshots:
                 snapshot.destroy(recursive)
+                continue
+
+            self.logger.info('Keeping snapshot %s (reasons: %s)', snapshot.name,
+                             ', '.join(snapshot.keep_reasons))
 
 
 class Host(object):
