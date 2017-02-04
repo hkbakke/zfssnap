@@ -318,7 +318,7 @@ class Dataset(object):
 
         if properties:
             for name, value in properties.items():
-                self.host.property_cache_add(self.name, name, value)
+                self.host.cache_add_property(self.name, name, value)
 
     def _destroy(self, recursive=False):
         args = ['destroy']
@@ -342,7 +342,7 @@ class Dataset(object):
         ]
         cmd = self.host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
-        self.host.property_cache_add(self.name, name, value)
+        self.host.cache_add_property(self.name, name, value)
 
     def unset_property(self, name):
         args = [
@@ -352,7 +352,7 @@ class Dataset(object):
         ]
         cmd = self.host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
-        self.host.property_cache_remove(self.name, name)
+        self.host.cache_remove_property(self.name, name)
 
     def get_properties(self, refresh=False):
         return self.host.get_properties_cached(refresh)[self.name]
@@ -385,7 +385,7 @@ class Snapshot(Dataset):
     def destroy(self, recursive=False):
         self.logger.info('Destroying snapshot %s', self.name)
         self._destroy(recursive)
-        self.host.snapshot_cache_remove(self)
+        self.host.cache_remove_snapshot(self)
 
     @property
     def timestamp(self):
@@ -456,10 +456,10 @@ class Filesystem(Dataset):
     def destroy(self, recursive=False):
         self.logger.info('Destroying filesystem %s', self.name)
         self._destroy(recursive)
-        self.host.filesystem_cache_remove(self)
+        self.host.cache_remove_filesystem(self)
 
     def get_snapshots(self, label=None, refresh=False):
-        for snapshot in self.host.get_snapshots_cached(refresh):
+        for snapshot in self.host.cache_get_snapshots(refresh):
             if snapshot.dataset_name != self.name:
                 continue
             if label and snapshot.label != label:
@@ -540,7 +540,7 @@ class Filesystem(Dataset):
         cmd = self.host.get_cmd('zfs', args)
         subprocess.check_call(cmd)
         snapshot = Snapshot(self.host, name, properties=properties)
-        self.host.snapshot_cache_add(snapshot)
+        self.host.cache_add_snapshot(snapshot)
         return snapshot
 
     @staticmethod
@@ -670,9 +670,9 @@ class Host(object):
         self._filesystems = []
         self._snapshots = []
         self._dataset_properties = defaultdict(dict)
-        self._refresh_snapshots = True
-        self._refresh_filesystems = True
-        self._refresh_properties = True
+        self._refresh_snapshots_cache = True
+        self._refresh_filesystems_cache = True
+        self._refresh_properties_cache = True
 
     def _get_ssh_cmd(self):
         user = self.ssh_params['user']
@@ -708,7 +708,12 @@ class Host(object):
         self.logger.debug('Command: %s', ' '.join(cmd))
         return cmd
 
-    def _refresh_properties_cache(self):
+    def cache_refresh(self):
+        self._refresh_properties_cache = True
+        self._refresh_snapshots_cache = True
+        self._refresh_filesystems_cache = True
+
+    def _cache_refresh_properties(self):
         self.logger.debug('Refreshing dataset properties cache')
         dataset_properties = defaultdict(dict)
         args = [
@@ -727,11 +732,9 @@ class Host(object):
             dataset_properties[name][zfs_property] = autotype(value)
 
         self._dataset_properties = dataset_properties
-        self._refresh_properties = False
-        self._refresh_snapshots = True
-        self._refresh_filesystems = True
+        self._refresh_properties_cache = False
 
-    def _refresh_snapshots_cache(self):
+    def _cache_refresh_snapshots(self):
         self.logger.debug('Refreshing snapshots cache')
         snapshots = []
         snapshot_pattern = r'^.+@zfssnap_[0-9]{8}T[0-9]{6}Z$'
@@ -748,9 +751,9 @@ class Host(object):
             snapshots.append(snapshot)
 
         self._snapshots = snapshots
-        self._refresh_snapshots = False
+        self._refresh_snapshots_cache = False
 
-    def _refresh_filesystems_cache(self):
+    def _cache_refresh_filesystems(self):
         self.logger.debug('Refreshing filesystems cache')
         filesystems = []
         all_datasets = self.get_properties_cached()
@@ -762,45 +765,47 @@ class Host(object):
             filesystems.append(fs)
 
         self._filesystems = filesystems
-        self._refresh_filesystems = False
+        self._refresh_filesystems_cache = False
 
     def get_properties_cached(self, refresh=False):
-        if refresh or self._refresh_properties:
-            self._refresh_properties_cache()
+        if refresh:
+            self.cache_refresh()
+        if refresh or self._refresh_properties_cache:
+            self._cache_refresh_properties()
         return self._dataset_properties
 
-    def property_cache_add(self, dataset, name, value):
+    def cache_add_property(self, dataset, name, value):
         self._dataset_properties[dataset][name] = value
 
-    def property_cache_remove(self, dataset, name):
+    def cache_remove_property(self, dataset, name):
         self._dataset_properties[dataset].pop(name, None)
 
-    def get_snapshots_cached(self, refresh=False):
+    def cache_get_snapshots(self, refresh=False):
         if refresh:
-            self._refresh_properties = True
-        if refresh or self._refresh_snapshots:
-            self._refresh_snapshots_cache()
+            self.cache_refresh()
+        if refresh or self._refresh_snapshots_cache:
+            self._cache_refresh_snapshots()
         for snapshot in self._snapshots:
             yield snapshot
 
-    def snapshot_cache_add(self, snapshot):
+    def cache_add_snapshot(self, snapshot):
         self.logger.debug('Adding %s to snapshot cache', snapshot.name)
         self._snapshots.append(snapshot)
 
-    def snapshot_cache_remove(self, snapshot):
+    def cache_remove_snapshot(self, snapshot):
         self.logger.debug('Removing %s from snapshot cache', snapshot.name)
         self._snapshots.remove(snapshot)
         self._dataset_properties.pop(snapshot.name)
 
-    def get_filesystems_cached(self, refresh=False):
+    def cache_get_filesystems(self, refresh=False):
         if refresh:
-            self._refresh_properties = True
-        if refresh or self._refresh_filesystems:
-            self._refresh_filesystems_cache()
+            self.cache_refresh()
+        if refresh or self._refresh_filesystems_cache:
+            self._cache_refresh_filesystems()
         for filesystem in self._filesystems:
             yield filesystem
 
-    def filesystem_cache_remove(self, fs):
+    def cache_remove_filesystem(self, fs):
         self.logger.debug('Removing %s from filesystem cache', fs.name)
         self._filesystems.remove(fs)
         self._dataset_properties.pop(fs.name)
@@ -812,7 +817,7 @@ class Host(object):
         if exclude is None:
             exclude = []
 
-        for fs in self.get_filesystems_cached(refresh):
+        for fs in self.cache_get_filesystems(refresh):
             excluded = False
 
             for pattern in exclude:
@@ -836,7 +841,7 @@ class Host(object):
                 yield fs
 
     def get_filesystem(self, name, refresh=False):
-        for fs in self.get_filesystems_cached(refresh):
+        for fs in self.cache_get_filesystems(refresh):
             if fs.name == name:
                 return fs
 
