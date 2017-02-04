@@ -667,6 +667,10 @@ class Host(object):
         user = self.ssh_params['user']
         host = self.ssh_params.get('host', None)
         cmd = self.ssh_params['ssh']
+        ssh_cmd = []
+
+        if not host:
+            return ssh_cmd
 
         if user:
             ssh_cmd = [cmd, '%s@%s' % (user, host)]
@@ -684,12 +688,11 @@ class Host(object):
             raise ZFSSnapException(
                 '\'%s\' is not defined.' % name)
 
+        cmd = []
         if self.ssh_params:
-            cmd = self._get_ssh_cmd()
-            cmd.append(cmd_path)
-        else:
-            cmd = [cmd_path]
+            cmd.extend(self._get_ssh_cmd())
 
+        cmd.append(cmd_path)
         cmd.extend(args)
         self.logger.debug('Command: %s', ' '.join(cmd))
         return cmd
