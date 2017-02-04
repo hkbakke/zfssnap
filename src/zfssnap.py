@@ -371,7 +371,12 @@ class Dataset(object):
 
 class Snapshot(Dataset):
     def __init__(self, host, name, properties=None):
+        if properties is None:
+            properties = {}
+
+        properties['type'] = 'snapshot'
         super(Snapshot, self).__init__(host, name, properties)
+
         self.dataset_name, self.snapshot_name = name.split('@')
         self._datetime = None
         self._version = None
@@ -424,6 +429,10 @@ class Snapshot(Dataset):
 
 class Filesystem(Dataset):
     def __init__(self, host, name, properties=None):
+        if properties is None:
+            properties = {}
+
+        properties['type'] = 'filesystem'
         super(Filesystem, self).__init__(host, name, properties)
 
     @property
@@ -661,7 +670,9 @@ class Host(object):
         self._filesystems = []
         self._snapshots = []
         self._dataset_properties = defaultdict(dict)
-        self._cache_refreshed = False
+        self._refresh_snapshots = True
+        self._refresh_filesystems = True
+        self._refresh_properties = True
 
     def _get_ssh_cmd(self):
         user = self.ssh_params['user']
@@ -697,45 +708,37 @@ class Host(object):
         self.logger.debug('Command: %s', ' '.join(cmd))
         return cmd
 
-    def _refresh_cache(self):
-        self.logger.debug('Refreshing cache')
-        self._refresh_properties_cache()
-        self._refresh_filesystems_cache()
-        self._refresh_snapshots_cache()
-        self._cache_refreshed = True
-
     def _refresh_properties_cache(self):
         self.logger.debug('Refreshing dataset properties cache')
-        self._snapshots = []
-        self._filesystems = []
         dataset_properties = defaultdict(dict)
-
         args = [
             'get', 'all',
             '-H',
             '-p',
             '-o', 'name,property,value',
         ]
-
         cmd = self.get_cmd('zfs', args)
         output = subprocess.check_output(cmd)
 
         for line in output.decode('utf8').split('\n'):
             if not line.strip():
                 continue
-
             name, zfs_property, value = line.split('\t')
             dataset_properties[name][zfs_property] = autotype(value)
 
         self._dataset_properties = dataset_properties
+        self._refresh_properties = False
+        self._refresh_snapshots = True
+        self._refresh_filesystems = True
 
     def _refresh_snapshots_cache(self):
         self.logger.debug('Refreshing snapshots cache')
         snapshots = []
         snapshot_pattern = r'^.+@zfssnap_[0-9]{8}T[0-9]{6}Z$'
         snapshot_re = re.compile(snapshot_pattern)
+        all_datasets = self.get_properties_cached()
 
-        for name, properties in self._dataset_properties.items():
+        for name, properties in all_datasets.items():
             if properties['type'] != 'snapshot':
                 continue
             # Only keep zfssnap snapshots
@@ -745,37 +748,38 @@ class Host(object):
             snapshots.append(snapshot)
 
         self._snapshots = snapshots
+        self._refresh_snapshots = False
 
     def _refresh_filesystems_cache(self):
         self.logger.debug('Refreshing filesystems cache')
         filesystems = []
+        all_datasets = self.get_properties_cached()
 
-        for name, properties in self._dataset_properties.items():
+        for name, properties in all_datasets.items():
             if properties['type'] != 'filesystem':
                 continue
             fs = Filesystem(self, name)
             filesystems.append(fs)
 
         self._filesystems = filesystems
+        self._refresh_filesystems = False
 
     def get_properties_cached(self, refresh=False):
-        if refresh or not self._cache_refreshed:
-            self._refresh_cache()
+        if refresh or self._refresh_properties:
+            self._refresh_properties_cache()
         return self._dataset_properties
 
     def property_cache_add(self, dataset, name, value):
-        self.logger.debug('Adding \'%s=%s\' to property cache for %s',
-                          name, value, dataset)
         self._dataset_properties[dataset][name] = value
 
     def property_cache_remove(self, dataset, name):
-        self.logger.debug('Removing \'%s\' from property cache for %s',
-                          name, dataset)
         self._dataset_properties[dataset].pop(name, None)
 
     def get_snapshots_cached(self, refresh=False):
-        if refresh or not self._cache_refreshed:
-            self._refresh_cache()
+        if refresh:
+            self._refresh_properties = True
+        if refresh or self._refresh_snapshots:
+            self._refresh_snapshots_cache()
         for snapshot in self._snapshots:
             yield snapshot
 
@@ -789,8 +793,10 @@ class Host(object):
         self._dataset_properties.pop(snapshot.name)
 
     def get_filesystems_cached(self, refresh=False):
-        if refresh or not self._cache_refreshed:
-            self._refresh_cache()
+        if refresh:
+            self._refresh_properties = True
+        if refresh or self._refresh_filesystems:
+            self._refresh_filesystems_cache()
         for filesystem in self._filesystems:
             yield filesystem
 
