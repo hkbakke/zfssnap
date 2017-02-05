@@ -320,11 +320,14 @@ class Dataset(object):
             for name, value in properties.items():
                 self.host.cache_add_property(self.name, name, value)
 
-    def _destroy(self, recursive=False):
+    def _destroy(self, recursive=False, defer=False):
         args = ['destroy']
 
         if recursive:
             args.append('-r')
+
+        if defer:
+            args.append('-d')
 
         args.append(self.name)
         cmd = self.host.get_cmd('zfs', args)
@@ -382,9 +385,9 @@ class Snapshot(Dataset):
         self._version = None
         self.keep_reasons = []
 
-    def destroy(self, recursive=False):
+    def destroy(self, recursive=False, defer=True):
         self.logger.info('Destroying snapshot %s', self.name)
-        self._destroy(recursive)
+        self._destroy(recursive, defer)
         self.host.cache_remove_snapshot(self)
 
     @property
