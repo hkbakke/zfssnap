@@ -31,6 +31,7 @@ PROPERTY_PREFIX = 'zfssnap'
 ZFSSNAP_LABEL = '%s:label' % PROPERTY_PREFIX
 ZFSSNAP_REPL_STATUS = '%s:repl_status' % PROPERTY_PREFIX
 ZFSSNAP_VERSION = '%s:version' % PROPERTY_PREFIX
+LOGGER = logging.getLogger(__name__)
 
 
 def autotype(value):
@@ -64,7 +65,6 @@ class SegmentMissingException(Exception):
 class MetadataFile(object):
     def __init__(self, path):
         self.path = path
-        self.logger = logging.getLogger(__name__)
         self._version = None
         self._timestamp = None
         self._label = None
@@ -79,19 +79,19 @@ class MetadataFile(object):
         return checksum.hexdigest()
 
     def _read_file(self):
-        self.logger.debug('Reading metadata from %s', self.path)
+        LOGGER.debug('Reading metadata from %s', self.path)
         with open(self.path) as f:
             return json.load(f)
 
     def _write_file(self, metadata):
-        self.logger.info('Writing metadata to %s', self.path)
+        LOGGER.info('Writing metadata to %s', self.path)
         with open(self.path, 'w') as f:
             f.write(json.dumps(metadata, sort_keys=True, indent=4))
 
     def read(self):
         metadata = self._read_file()
         checksum = metadata.pop('checksum')
-        self.logger.debug('Validating metadata checksum')
+        LOGGER.debug('Validating metadata checksum')
 
         if checksum != self._get_checksum(metadata):
             raise MetadataFileException('Invalid metadata checksum')
@@ -312,7 +312,6 @@ class Config(object):
 
 class Dataset(object):
     def __init__(self, host, name, properties=None):
-        self.logger = logging.getLogger(__name__)
         self.name = name
         self.host = host
 
@@ -363,12 +362,12 @@ class Dataset(object):
     def get_property(self, name):
         value = self.get_properties().get(name, None)
         if not value:
-            self.logger.debug('The zfs property \'%s\' was not found in cache '
-                              'for %s. Trying to refresh', name, self.name)
+            LOGGER.debug('The zfs property \'%s\' was not found in cache '
+                         'for %s. Trying to refresh', name, self.name)
             value = self.get_properties(refresh=True).get(name, None)
         if not value:
-            self.logger.debug('The zfs property \'%s\' does not exist for %s',
-                              name, self.name)
+            LOGGER.debug('The zfs property \'%s\' does not exist for %s',
+                         name, self.name)
         return value
 
 
@@ -386,7 +385,7 @@ class Snapshot(Dataset):
         self.keep_reasons = []
 
     def destroy(self, recursive=False, defer=True):
-        self.logger.info('Destroying snapshot %s', self.name)
+        LOGGER.info('Destroying snapshot %s', self.name)
         self._destroy(recursive, defer)
         self.host.cache_remove_snapshot(self)
 
@@ -457,7 +456,7 @@ class Filesystem(Dataset):
                 return snapshot
 
     def destroy(self, recursive=False):
-        self.logger.info('Destroying filesystem %s', self.name)
+        LOGGER.info('Destroying filesystem %s', self.name)
         self._destroy(recursive)
         self.host.cache_remove_filesystem(self)
 
@@ -502,7 +501,7 @@ class Filesystem(Dataset):
         return self.host.get_cmd('zfs', receive_args)
 
     def get_split_cmd(self, prefix, split_size='1G', suffix_length=4):
-        self.logger.info('Splitting at segment size %s', split_size)
+        LOGGER.info('Splitting at segment size %s', split_size)
         split_args = [
             '--bytes=%s' % split_size,
             '--suffix-length=%s' % suffix_length,
@@ -521,7 +520,7 @@ class Filesystem(Dataset):
 
         timestamp = ts.strftime('%Y%m%dT%H%M%SZ')
         name = '%s@zfssnap_%s' % (self.name, timestamp)
-        self.logger.info('Creating snapshot %s (label: %s)', name, label)
+        LOGGER.info('Creating snapshot %s (label: %s)', name, label)
         properties = {
             ZFSSNAP_LABEL: label,
             ZFSSNAP_VERSION: VERSION
@@ -661,13 +660,12 @@ class Filesystem(Dataset):
                 snapshot.destroy(recursive)
                 continue
 
-            self.logger.info('Keeping snapshot %s (reasons: %s)', snapshot.name,
-                             ', '.join(snapshot.keep_reasons))
+            LOGGER.debug('Keeping snapshot %s (reasons: %s)', snapshot.name,
+                         ', '.join(snapshot.keep_reasons))
 
 
 class Host(object):
     def __init__(self, cmds, ssh_params=None):
-        self.logger = logging.getLogger(__name__)
         self.cmds = cmds
         self.ssh_params = ssh_params
         self._filesystems = []
@@ -708,7 +706,7 @@ class Host(object):
 
         cmd.append(cmd_path)
         cmd.extend(args)
-        self.logger.debug('Command: %s', ' '.join(cmd))
+        LOGGER.debug('Command: %s', ' '.join(cmd))
         return cmd
 
     def cache_refresh(self):
@@ -717,7 +715,7 @@ class Host(object):
         self._refresh_filesystems_cache = True
 
     def _cache_refresh_properties(self):
-        self.logger.debug('Refreshing dataset properties cache')
+        LOGGER.debug('Refreshing dataset properties cache')
         dataset_properties = defaultdict(dict)
         args = [
             'get', 'all',
@@ -738,7 +736,7 @@ class Host(object):
         self._refresh_properties_cache = False
 
     def _cache_refresh_snapshots(self):
-        self.logger.debug('Refreshing snapshots cache')
+        LOGGER.debug('Refreshing snapshots cache')
         snapshots = []
         snapshot_pattern = r'^.+@zfssnap_[0-9]{8}T[0-9]{6}Z$'
         snapshot_re = re.compile(snapshot_pattern)
@@ -757,7 +755,7 @@ class Host(object):
         self._refresh_snapshots_cache = False
 
     def _cache_refresh_filesystems(self):
-        self.logger.debug('Refreshing filesystems cache')
+        LOGGER.debug('Refreshing filesystems cache')
         filesystems = []
         all_datasets = self.get_properties_cached()
 
@@ -792,11 +790,11 @@ class Host(object):
             yield snapshot
 
     def cache_add_snapshot(self, snapshot):
-        self.logger.debug('Adding %s to snapshot cache', snapshot.name)
+        LOGGER.debug('Adding %s to snapshot cache', snapshot.name)
         self._snapshots.append(snapshot)
 
     def cache_remove_snapshot(self, snapshot):
-        self.logger.debug('Removing %s from snapshot cache', snapshot.name)
+        LOGGER.debug('Removing %s from snapshot cache', snapshot.name)
         self._snapshots.remove(snapshot)
         self._dataset_properties.pop(snapshot.name)
 
@@ -809,7 +807,7 @@ class Host(object):
             yield filesystem
 
     def cache_remove_filesystem(self, fs):
-        self.logger.debug('Removing %s from filesystem cache', fs.name)
+        LOGGER.debug('Removing %s from filesystem cache', fs.name)
         self._filesystems.remove(fs)
         self._dataset_properties.pop(fs.name)
 
@@ -836,7 +834,6 @@ class Host(object):
 
 class ZFSSnap(object):
     def __init__(self, config=None, lockfile=None):
-        self.logger = logging.getLogger(__name__)
         self.lockfile = '/run/lock/zfssnap.lock'
 
         if lockfile:
@@ -853,9 +850,9 @@ class ZFSSnap(object):
 
     def __exit__(self, exc_type, exc_value, traceback):
         if exc_type is KeyboardInterrupt:
-            self.logger.error('zfssnap aborted!')
+            LOGGER.error('zfssnap aborted!')
         elif exc_type is not None:
-            self.logger.error(exc_value)
+            LOGGER.error(exc_value)
 
     def _aquire_lock(self, lockfile=None):
         if lockfile is None:
@@ -868,11 +865,11 @@ class ZFSSnap(object):
         while timeout > 0:
             try:
                 fcntl.lockf(self._lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                self.logger.debug('Lock aquired')
+                LOGGER.debug('Lock aquired')
                 return
             except OSError:
-                self.logger.info('zfssnap is already running. Waiting for '
-                                 'lock release... (timeout: %ss)', timeout)
+                LOGGER.info('zfssnap is already running. Waiting for '
+                            'lock release... (timeout: %ss)', timeout)
                 timeout = timeout - wait
                 time.sleep(wait)
 
@@ -880,9 +877,10 @@ class ZFSSnap(object):
 
     def _release_lock(self):
         fcntl.flock(self._lock, fcntl.LOCK_UN)
-        self.logger.debug('Lock released')
+        LOGGER.debug('Lock released')
 
-    def _get_metadata_files(self, src_dir, label, file_prefix=None):
+    @staticmethod
+    def _get_metadata_files(src_dir, label, file_prefix=None):
         if file_prefix is None:
             file_prefix = 'zfssnap'
 
@@ -895,7 +893,7 @@ class ZFSSnap(object):
                 metadata.read()
 
                 if metadata.label != label:
-                    self.logger.warning(
+                    LOGGER.warning(
                         'Wrong snapshot label (%s). Do you have other metadata '
                         'files in %s sharing the prefix \'%s\'? Skipping.',
                         metadata.label, src_dir, file_prefix)
@@ -910,9 +908,10 @@ class ZFSSnap(object):
 
                 yield metadata
 
-    def _run_replication_cmd(self, in_cmd, out_cmd):
-        self.logger.debug('Replication command: \'%s | %s\'',
-                          ' '.join(in_cmd), ' '.join(out_cmd))
+    @staticmethod
+    def _run_replication_cmd(in_cmd, out_cmd):
+        LOGGER.debug('Replication command: \'%s | %s\'',
+                     ' '.join(in_cmd), ' '.join(out_cmd))
 
         in_p = subprocess.Popen(in_cmd, stdout=subprocess.PIPE)
         out_p = subprocess.Popen(out_cmd, stdin=in_p.stdout,
@@ -931,7 +930,7 @@ class ZFSSnap(object):
         while out_p.poll() is None:
             for line in iter(out_p.stdout.readline, b''):
                 line = line.strip().decode('utf8')
-                self.logger.info(line)
+                LOGGER.info(line)
                 lines.append(line)
 
         if out_p.returncode != 0:
@@ -939,20 +938,21 @@ class ZFSSnap(object):
 
         return lines
 
-    def _enforce_read_only(self, fs, read_only):
+    @staticmethod
+    def _enforce_read_only(fs, read_only):
         if fs.read_only == 'on':
-            self.logger.info('%s is set to read only', fs.name)
+            LOGGER.info('%s is set to read only', fs.name)
             if not read_only:
-                self.logger.info('Removing read only from %s', fs.name)
+                LOGGER.info('Removing read only from %s', fs.name)
                 fs.read_only = None
         elif read_only:
-            self.logger.info('Setting %s to read only', fs.name)
+            LOGGER.info('Setting %s to read only', fs.name)
             fs.read_only = 'on'
 
     def replicate(self, src_fs, dst_fs, label, base_snapshot, read_only=False):
         _base_snapshot = src_fs.get_base_snapshot(label, base_snapshot)
         snapshot = src_fs.snapshot(label, recursive=True)
-        self.logger.info('Replicating %s to %s', src_fs.name, dst_fs.name)
+        LOGGER.info('Replicating %s to %s', src_fs.name, dst_fs.name)
         send_cmd = src_fs.get_send_cmd(snapshot, _base_snapshot)
         receive_cmd = dst_fs.get_receive_cmd()
         self._run_replication_cmd(send_cmd, receive_cmd)
@@ -1021,15 +1021,15 @@ class ZFSSnap(object):
         metadata.write()
 
     def receive_from_file(self, dst_fs, label, src_dir, metadata, read_only=False):
-        self.logger.info('Selecting %s', metadata.path)
+        LOGGER.info('Selecting %s', metadata.path)
 
         # Make sure the cache is refreshed as the snapshot count might have
         # changed if multiple metadata files are processed in one run
         previous_snapshot = dst_fs.get_latest_repl_snapshot(label, refresh=True)
 
         if previous_snapshot and previous_snapshot.datetime >= metadata.datetime:
-            self.logger.warning('Ignoring %s as it is already applied or '
-                                'older than the current snapshot', metadata.path)
+            LOGGER.warning('Ignoring %s as it is already applied or '
+                           'older than the current snapshot', metadata.path)
             self._cleanup_sync_files(metadata, src_dir)
             return
 
@@ -1077,7 +1077,7 @@ class ZFSSnap(object):
             if segment:
                 segments.append(segment)
 
-        self.logger.info('Total segment count: %s', len(segments))
+        LOGGER.info('Total segment count: %s', len(segments))
 
         # Ensure metadata file are written before repl_status are set to
         # 'success', so we are sure this end does not believe things are
@@ -1093,8 +1093,8 @@ class ZFSSnap(object):
     def _run_snapshot_policy(self, policy, reset=False):
         if not reset:
             sleep = 1
-            self.logger.debug('Sleeping %ss to avoid potential snapshot name '
-                              'collisions due to matching timestamps', sleep)
+            LOGGER.debug('Sleeping %ss to avoid potential snapshot name '
+                         'collisions due to matching timestamps', sleep)
             time.sleep(sleep)
 
         policy_config = self.config.get_policy(policy)
@@ -1109,8 +1109,7 @@ class ZFSSnap(object):
         self._aquire_lock()
 
         if reset:
-            self.logger.warning('Reset is enabled. Removing all snapshots for '
-                                'this policy')
+            LOGGER.warning('Reset is enabled. Removing all snapshots for this policy')
 
         for dataset in datasets:
             if not reset:
@@ -1123,8 +1122,8 @@ class ZFSSnap(object):
     def _run_replicate_policy(self, policy, reset=False, base_snapshot=None):
         if not reset:
             sleep = 1
-            self.logger.debug('Sleeping %ss to avoid potential snapshot name '
-                              'collisions due to matching timestamps', sleep)
+            LOGGER.debug('Sleeping %ss to avoid potential snapshot name '
+                         'collisions due to matching timestamps', sleep)
             time.sleep(sleep)
 
         policy_config = self.config.get_policy(policy)
@@ -1143,9 +1142,9 @@ class ZFSSnap(object):
         self._aquire_lock()
 
         if reset:
-            self.logger.warning('Reset is enabled. Reinitializing replication.')
+            LOGGER.warning('Reset is enabled. Reinitializing replication.')
             if dst_fs:
-                self.logger.warning('Destroying destination dataset')
+                LOGGER.warning('Destroying destination dataset')
                 dst_fs.destroy(recursive=True)
         else:
             # If this is the first replication run the destination file system
@@ -1174,7 +1173,7 @@ class ZFSSnap(object):
             # Return early if no metadata files are found to avoid triggering
             # unnecessary cache refreshes against the host
             if not metadata_files:
-                self.logger.debug('No metadata files found in %s', src_dir)
+                LOGGER.debug('No metadata files found in %s', src_dir)
                 return
 
         dst_host = Host(policy_config['cmds'])
@@ -1183,9 +1182,9 @@ class ZFSSnap(object):
         self._aquire_lock()
 
         if reset:
-            self.logger.warning('Reset is enabled. Reinitializing replication.')
+            LOGGER.warning('Reset is enabled. Reinitializing replication.')
             if dst_fs:
-                self.logger.warning('Destroying destination dataset')
+                LOGGER.warning('Destroying destination dataset')
                 dst_fs.destroy(recursive=True)
         else:
             # If this is the first replication run the destination file system
@@ -1199,15 +1198,15 @@ class ZFSSnap(object):
                 for metadata in sorted(metadata_files, key=attrgetter('datetime')):
                     self.receive_from_file(dst_fs, label, src_dir, metadata, read_only)
             except SegmentMissingException as e:
-                self.logger.info(e)
+                LOGGER.info(e)
 
         self._release_lock()
 
     def _run_send_to_file_policy(self, policy, reset=False, base_snapshot=None):
         if not reset:
             sleep = 1
-            self.logger.debug('Sleeping %ss to avoid potential snapshot name '
-                              'collisions due to matching timestamps', sleep)
+            LOGGER.debug('Sleeping %ss to avoid potential snapshot name '
+                         'collisions due to matching timestamps', sleep)
             time.sleep(sleep)
 
         policy_config = self.config.get_policy(policy)
@@ -1223,8 +1222,8 @@ class ZFSSnap(object):
         self._aquire_lock()
 
         if reset:
-            self.logger.warning('Reset is enabled. Reinitializing replication.')
-            self.logger.warning('Cleaning up source replication snapshots')
+            LOGGER.warning('Reset is enabled. Reinitializing replication.')
+            LOGGER.warning('Cleaning up source replication snapshots')
         else:
             self.send_to_file(src_fs, label, dst_dir, file_prefix, suffix_length,
                               split_size, base_snapshot)
