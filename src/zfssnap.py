@@ -813,6 +813,13 @@ class Host(object):
         self._filesystems.remove(fs)
         self._dataset_properties.pop(fs.name)
 
+    @staticmethod
+    def _match_any(name, patterns):
+        for pattern in patterns:
+            if fnmatch.fnmatch(name, pattern):
+                return True
+        return False
+
     def get_filesystems(self, include=None, exclude=None, refresh=False):
         if include is None:
             include = []
@@ -821,27 +828,11 @@ class Host(object):
             exclude = []
 
         for fs in self.cache_get_filesystems(refresh):
-            excluded = False
-
-            for pattern in exclude:
-                if not fnmatch.fnmatch(fs.name, pattern):
-                    continue
-                self.logger.debug('\'%s\' is excluded by pattern \'%s\'',
-                                  fs.name, pattern)
-                excluded = True
-                break
-
-            if excluded:
+            if self._match_any(fs.name, exclude):
                 continue
-
-            if include:
-                for pattern in include:
-                    if not fnmatch.fnmatch(fs.name, pattern):
-                        continue
-                    yield fs
-                    break
-            else:
-                yield fs
+            if include and not self._match_any(fs.name, include):
+                continue
+            yield fs
 
     def get_filesystem(self, name, refresh=False):
         for fs in self.cache_get_filesystems(refresh):
