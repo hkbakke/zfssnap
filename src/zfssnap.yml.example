@@ -63,19 +63,6 @@ policies:
     keep:
       daily: 31
 
-  recursive:
-    # Here we are doing recursive snapshots on the top level, excluding all
-    # lower level datasets as they are included in the top level recursive
-    # snapshots.
-    type: snapshot
-    include:
-      - '*'
-    exclude:
-      - '*/*'
-    keep:
-      hourly: 24
-    recursive: yes
-
   replicate-vms:
     # The destination dataset _must_ be unused, preferable not even created,
     # as zfssnap will ensure it is looking like the source, and even destroying

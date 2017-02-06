@@ -820,12 +820,15 @@ class Host(object):
                 return True
         return False
 
-    def get_filesystems(self, include=None, exclude=None, refresh=False):
+    def get_filesystems(self, include=None, exclude=None, recursive=False, refresh=False):
         if include is None:
             include = []
 
         if exclude is None:
             exclude = []
+
+        if recursive:
+            exclude.extend(['%s/*' % p for p in include])
 
         for fs in self.cache_get_filesystems(refresh):
             if self._match_any(fs.name, exclude):
@@ -1106,10 +1109,11 @@ class ZFSSnap(object):
         policy_config = self.config.get_policy(policy)
         label = policy_config['label']
         host = Host(cmds=policy_config['cmds'])
-        datasets = host.get_filesystems(
-            include=policy_config.get('include', None),
-            exclude=policy_config.get('exclude', None))
         recursive = policy_config['recursive']
+        datasets = host.get_filesystems(
+            policy_config.get('include', None),
+            policy_config.get('exclude', None),
+            recursive)
         keep = policy_config['keep']
         self._aquire_lock()
 
@@ -1263,10 +1267,12 @@ class ZFSSnap(object):
         policy_config = self.config.get_policy(policy)
         label = policy_config['label']
         host = Host(policy_config['cmds'])
+        recursive = policy_config['recursive']
         datasets = [
             d for d in host.get_filesystems(
-                include=policy_config.get('include', None),
-                exclude=policy_config.get('exclude', None))
+                policy_config.get('include', None),
+                policy_config.get('exclude', None),
+                recursive)
         ]
         self._print_config(policy_config)
         self._print_datasets(datasets)
