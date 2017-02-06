@@ -813,27 +813,18 @@ class Host(object):
         self._filesystems.remove(fs)
         self._dataset_properties.pop(fs.name)
 
-    @staticmethod
-    def _match_any(name, patterns):
-        for pattern in patterns:
-            if fnmatch.fnmatch(name, pattern):
-                return True
-        return False
-
     def get_filesystems(self, include=None, exclude=None, recursive=False, refresh=False):
         if include is None:
             include = []
-
         if exclude is None:
             exclude = []
-
         if recursive:
             exclude.extend(['%s/*' % p for p in include])
 
         for fs in self.cache_get_filesystems(refresh):
-            if self._match_any(fs.name, exclude):
+            if any((fnmatch.fnmatch(fs.name, p) for p in exclude)):
                 continue
-            if include and not self._match_any(fs.name, include):
+            if include and not any((fnmatch.fnmatch(fs.name, p) for p in include)):
                 continue
             yield fs
 
