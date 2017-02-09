@@ -1372,7 +1372,7 @@ def main():
     mutex_group2.add_argument(
         '--reset', action='store_true',
         help='Remove all policy snapshots or reinitialize replication')
-    mutex_group2.add_argument('--list', help='List all policy snapshots',
+    mutex_group2.add_argument('--list', help='List policy information',
                               choices=[
                                   'snapshots',
                                   'datasets',
