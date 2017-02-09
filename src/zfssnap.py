@@ -1234,7 +1234,7 @@ class ZFSSnap(object):
 
     @staticmethod
     def _print_header(text):
-        print('\n%s' % text)
+        print('%s' % text)
         print('-' * len(text))
 
     def _print_datasets(self, datasets, header='DATASETS'):
@@ -1253,7 +1253,7 @@ class ZFSSnap(object):
         self._print_header('POLICY CONFIG')
         print(yaml.dump(config, default_flow_style=False))
 
-    def _list_snapshot_policy(self, policy):
+    def _list_snapshot_policy(self, policy, list_mode):
         policy_config = self.config.get_policy(policy)
         label = policy_config['label']
         host = Host(policy_config['cmds'])
@@ -1264,20 +1264,28 @@ class ZFSSnap(object):
                 policy_config.get('exclude', None),
                 recursive)
         ]
-        self._print_config(policy_config)
-        self._print_datasets(datasets)
-        self._print_snapshots(datasets, label)
 
-    def _list_send_to_file_policy(self, policy):
+        if list_mode == 'config':
+            self._print_config(policy_config)
+        if list_mode == 'datasets':
+            self._print_datasets(datasets)
+        if list_mode == 'snapshots':
+            self._print_snapshots(datasets, label)
+
+    def _list_send_to_file_policy(self, policy, list_mode):
         policy_config = self.config.get_policy(policy)
         label = policy_config['label']
         src_host = Host(policy_config['cmds'])
         src_dataset = src_host.get_filesystem(policy_config['source']['dataset'])
-        self._print_config(policy_config)
-        self._print_datasets([src_dataset], 'SOURCE DATASET')
-        self._print_snapshots([src_dataset], label, 'SOURCE SNAPSHOTS')
 
-    def _list_receive_from_file_policy(self, policy):
+        if list_mode == 'config':
+            self._print_config(policy_config)
+        if list_mode == 'datasets':
+            self._print_datasets([src_dataset], 'SOURCE DATASET')
+        if list_mode == 'snapshots':
+            self._print_snapshots([src_dataset], label, 'SOURCE SNAPSHOTS')
+
+    def _list_receive_from_file_policy(self, policy, list_mode):
         policy_config = self.config.get_policy(policy)
         label = policy_config['label']
         dst_host = Host(policy_config['cmds'])
@@ -1288,11 +1296,15 @@ class ZFSSnap(object):
         else:
             dst_datasets = []
 
-        self._print_config(policy_config)
-        self._print_datasets(dst_datasets, 'DESTINATION DATASET')
-        self._print_snapshots(dst_datasets, label, 'DESTINATION SNAPSHOTS')
+        if list_mode == 'config':
+            self._print_config(policy_config)
+        if list_mode == 'datasets':
+            self._print_datasets(dst_datasets, 'DESTINATION DATASET')
+        if list_mode == 'snapshots':
+            self._print_snapshots(dst_datasets, label, 'DESTINATION SNAPSHOTS')
 
-    def _list_replicate_policy(self, policy):
+
+    def _list_replicate_policy(self, policy, list_mode):
         policy_config = self.config.get_policy(policy)
         label = policy_config['label']
         src_host = Host(policy_config['source']['cmds'])
@@ -1311,49 +1323,38 @@ class ZFSSnap(object):
         else:
             dst_datasets = []
 
-        self._print_config(policy_config)
-        self._print_datasets([src_dataset], 'SOURCE DATASET')
-        self._print_snapshots([src_dataset], label, 'SOURCE SNAPSHOTS')
-        self._print_datasets(dst_datasets, 'DESTINATION DATASET')
-        self._print_snapshots(dst_datasets, label, 'DESTINATION SNAPSHOTS')
+        if list_mode == 'config':
+            self._print_config(policy_config)
+        if list_mode == 'datasets':
+            self._print_datasets([src_dataset], 'SOURCE DATASET')
+            self._print_datasets(dst_datasets, '\nDESTINATION DATASET')
+        if list_mode == 'snapshots':
+            self._print_snapshots([src_dataset], label, 'SOURCE SNAPSHOTS')
+            self._print_snapshots(dst_datasets, label, '\nDESTINATION SNAPSHOTS')
 
-    def execute_policy(self, policy, mode, reset=False, base_snapshot=None):
-        exec_mode = 'exec'
-        list_mode = 'list'
+    def execute_policy(self, policy, list_mode=None, reset=False, base_snapshot=None):
         policy_type = self.config.get_policy(policy)['type']
 
         if policy_type == 'snapshot':
-            if mode == exec_mode:
+            if list_mode:
+                self._list_snapshot_policy(policy, list_mode)
+            else:
                 self._run_snapshot_policy(policy, reset)
-            elif mode == list_mode:
-                self._list_snapshot_policy(policy)
-            else:
-                raise ZFSSnapException('%s is not a valid mode for policy type %s' %
-                                       (mode, policy_type))
         elif policy_type == 'replicate':
-            if mode == exec_mode:
+            if list_mode:
+                self._list_replicate_policy(policy, list_mode)
+            else:
                 self._run_replicate_policy(policy, reset, base_snapshot)
-            elif mode == list_mode:
-                self._list_replicate_policy(policy)
-            else:
-                raise ZFSSnapException('%s is not a valid mode for policy type %s' %
-                                       (mode, policy_type))
         elif policy_type == 'send_to_file':
-            if mode == exec_mode:
+            if list_mode:
+                self._list_send_to_file_policy(policy, list_mode)
+            else:
                 self._run_send_to_file_policy(policy, reset, base_snapshot)
-            elif mode == list_mode:
-                self._list_send_to_file_policy(policy)
-            else:
-                raise ZFSSnapException('%s is not a valid mode for policy type %s' %
-                                       (mode, policy_type))
         elif policy_type == 'receive_from_file':
-            if mode == exec_mode:
-                self._run_receive_from_file_policy(policy, reset)
-            elif mode == list_mode:
-                self._list_receive_from_file_policy(policy)
+            if list_mode:
+                self._list_receive_from_file_policy(policy, list_mode)
             else:
-                raise ZFSSnapException('%s is not a valid mode for policy type %s' %
-                                       (mode, policy_type))
+                self._run_receive_from_file_policy(policy, reset)
         else:
             raise ZFSSnapException('%s is not a valid policy type' % policy_type)
 
@@ -1371,8 +1372,12 @@ def main():
     mutex_group2.add_argument(
         '--reset', action='store_true',
         help='Remove all policy snapshots or reinitialize replication')
-    mutex_group2.add_argument('--list', action='store_true',
-                              help='List all policy snapshots')
+    mutex_group2.add_argument('--list', help='List all policy snapshots',
+                              choices=[
+                                  'snapshots',
+                                  'datasets',
+                                  'config',
+                              ])
     mutex_group2.add_argument(
         '--base-snapshot', metavar='NAME',
         help='Override the base snapshot used for replication')
@@ -1409,14 +1414,9 @@ def main():
         ch.setFormatter(fmt)
         logger.addHandler(ch)
 
-    if args.list:
-        mode = 'list'
-    else:
-        mode = 'exec'
-
     try:
         with ZFSSnap(config=args.config, lockfile=args.lockfile) as z:
-            z.execute_policy(args.policy, mode, args.reset, args.base_snapshot)
+            z.execute_policy(args.policy, args.list, args.reset, args.base_snapshot)
     except ZFSSnapException:
         return 10
     except ReplicationException:
