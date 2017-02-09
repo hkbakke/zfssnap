@@ -1235,7 +1235,10 @@ class ZFSSnap(object):
     @staticmethod
     def _print_header(text):
         print('%s' % text)
-        print('-' * len(text))
+        dash_count = len(text)
+        if text.startswith('\n'):
+            dash_count -= 1
+        print('-' * dash_count)
 
     def _print_datasets(self, datasets, header='DATASETS'):
         self._print_header(header)
