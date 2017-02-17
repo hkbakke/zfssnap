@@ -26,7 +26,7 @@ except ImportError:
     from scandir import scandir
 
 
-VERSION = '3.7.1'
+VERSION = '3.7.2'
 PROPERTY_PREFIX = 'zfssnap'
 ZFSSNAP_LABEL = '%s:label' % PROPERTY_PREFIX
 ZFSSNAP_REPL_STATUS = '%s:repl_status' % PROPERTY_PREFIX
