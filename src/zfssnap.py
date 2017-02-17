@@ -330,7 +330,7 @@ class Dataset(object):
 
         args.append(self.name)
         cmd = self.host.get_cmd('zfs', args)
-        subprocess.check_call(cmd)
+        subprocess.check_output(cmd, stderr=subprocess.STDOUT)
 
     def set_property(self, name, value):
         if value is None:
@@ -386,7 +386,13 @@ class Snapshot(Dataset):
 
     def destroy(self, recursive=False, defer=True):
         LOGGER.info('Destroying snapshot %s', self.name)
-        self._destroy(recursive, defer)
+        try:
+            self._destroy(recursive, defer)
+        except subprocess.CalledProcessError as e:
+            if b'could not find any snapshots to destroy' in e.output:
+                LOGGER.warning('%s does not exist', self.name)
+            else:
+                raise
         self.host.cache_remove_snapshot(self)
 
     @property
