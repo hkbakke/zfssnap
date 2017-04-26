@@ -1008,7 +1008,7 @@ class ZFSSnap(object):
 
         for segment in sorted(metadata_segments):
             if segment not in src_file_names:
-                raise SegmentMissingException('Segment %s is missing in %s', segment, src_dir)
+                raise SegmentMissingException('Segment %s is missing in %s' % (segment, src_dir))
 
             yield os.path.join(src_dir, segment)
 
@@ -1204,7 +1204,7 @@ class ZFSSnap(object):
                 for metadata in sorted(metadata_files, key=attrgetter('datetime')):
                     self.receive_from_file(dst_fs, label, src_dir, metadata, read_only)
             except SegmentMissingException as e:
-                LOGGER.info(e)
+                LOGGER.error(e)
 
         self._release_lock()
 
