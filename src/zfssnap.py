@@ -26,7 +26,7 @@ except ImportError:
     from scandir import scandir
 
 
-VERSION = '3.7.2'
+VERSION = '3.8.0'
 PROPERTY_PREFIX = 'zfssnap'
 ZFSSNAP_LABEL = '%s:label' % PROPERTY_PREFIX
 ZFSSNAP_REPL_STATUS = '%s:repl_status' % PROPERTY_PREFIX
@@ -376,7 +376,10 @@ class Snapshot(Dataset):
         if properties is None:
             properties = {}
 
+        # Set type to be able to put new snapshots objects onto the
+        # snapshot cache without having to refresh the ZFS properties
         properties['type'] = 'snapshot'
+
         super(Snapshot, self).__init__(host, name, properties)
 
         self.dataset_name, self.snapshot_name = name.split('@')
@@ -435,13 +438,12 @@ class Snapshot(Dataset):
         self.keep_reasons.append(value)
 
 
-class Filesystem(Dataset):
+class FsVol(Dataset):
     def __init__(self, host, name, properties=None):
         if properties is None:
             properties = {}
 
-        properties['type'] = 'filesystem'
-        super(Filesystem, self).__init__(host, name, properties)
+        super(FsVol, self).__init__(host, name, properties)
 
     @property
     def read_only(self):
@@ -462,9 +464,9 @@ class Filesystem(Dataset):
                 return snapshot
 
     def destroy(self, recursive=False):
-        LOGGER.info('Destroying filesystem %s', self.name)
+        LOGGER.info('Destroying %s %s', self.get_property('type'), self.name)
         self._destroy(recursive)
-        self.host.cache_remove_filesystem(self)
+        self.host.cache_remove_fsvol(self)
 
     def get_snapshots(self, label=None, refresh=False):
         for snapshot in self.host.cache_get_snapshots(refresh):
@@ -674,11 +676,11 @@ class Host(object):
     def __init__(self, cmds, ssh_params=None):
         self.cmds = cmds
         self.ssh_params = ssh_params
-        self._filesystems = []
+        self._fsvols = []
         self._snapshots = []
         self._dataset_properties = defaultdict(dict)
         self._refresh_snapshots_cache = True
-        self._refresh_filesystems_cache = True
+        self._refresh_fsvols_cache = True
         self._refresh_properties_cache = True
 
     def _get_ssh_cmd(self):
@@ -718,7 +720,7 @@ class Host(object):
     def cache_refresh(self):
         self._refresh_properties_cache = True
         self._refresh_snapshots_cache = True
-        self._refresh_filesystems_cache = True
+        self._refresh_fsvols_cache = True
 
     def _cache_refresh_properties(self):
         LOGGER.debug('Refreshing dataset properties cache')
@@ -754,25 +756,24 @@ class Host(object):
             # Only keep zfssnap snapshots
             if not re.match(snapshot_re, name):
                 continue
-            snapshot = Snapshot(self, name)
+            snapshot = Snapshot(self, name, properties)
             snapshots.append(snapshot)
 
         self._snapshots = snapshots
         self._refresh_snapshots_cache = False
 
-    def _cache_refresh_filesystems(self):
-        LOGGER.debug('Refreshing filesystems cache')
-        filesystems = []
+    def _cache_refresh_fsvols(self):
+        LOGGER.debug('Refreshing fsvols cache')
+        fsvols = []
         all_datasets = self.get_properties_cached()
 
         for name, properties in all_datasets.items():
-            if properties['type'] != 'filesystem':
-                continue
-            fs = Filesystem(self, name)
-            filesystems.append(fs)
+            if properties['type'] in {'filesystem', 'volume'}:
+                fs = FsVol(self, name, properties)
+                fsvols.append(fs)
 
-        self._filesystems = filesystems
-        self._refresh_filesystems_cache = False
+        self._fsvols = fsvols
+        self._refresh_fsvols_cache = False
 
     def get_properties_cached(self, refresh=False):
         if refresh:
@@ -804,20 +805,20 @@ class Host(object):
         self._snapshots.remove(snapshot)
         self._dataset_properties.pop(snapshot.name)
 
-    def cache_get_filesystems(self, refresh=False):
+    def cache_get_fsvols(self, refresh=False):
         if refresh:
             self.cache_refresh()
-        if refresh or self._refresh_filesystems_cache:
-            self._cache_refresh_filesystems()
-        for filesystem in self._filesystems:
-            yield filesystem
+        if refresh or self._refresh_fsvols_cache:
+            self._cache_refresh_fsvols()
+        for fsvol in self._fsvols:
+            yield fsvol
 
-    def cache_remove_filesystem(self, fs):
-        LOGGER.debug('Removing %s from filesystem cache', fs.name)
-        self._filesystems.remove(fs)
+    def cache_remove_fsvol(self, fs):
+        LOGGER.debug('Removing %s from fsvol cache', fs.name)
+        self._fsvols.remove(fs)
         self._dataset_properties.pop(fs.name)
 
-    def get_filesystems(self, include=None, exclude=None, recursive=False, refresh=False):
+    def get_fsvols(self, include=None, exclude=None, recursive=False, refresh=False):
         if include is None:
             include = []
         if exclude is None:
@@ -825,15 +826,15 @@ class Host(object):
         if recursive:
             exclude.extend(['%s/*' % p for p in include])
 
-        for fs in self.cache_get_filesystems(refresh):
+        for fs in self.cache_get_fsvols(refresh):
             if any((fnmatch.fnmatch(fs.name, p) for p in exclude)):
                 continue
             if include and not any((fnmatch.fnmatch(fs.name, p) for p in include)):
                 continue
             yield fs
 
-    def get_filesystem(self, name, refresh=False):
-        for fs in self.cache_get_filesystems(refresh):
+    def get_fsvol(self, name, refresh=False):
+        for fs in self.cache_get_fsvols(refresh):
             if fs.name == name:
                 return fs
 
@@ -955,12 +956,12 @@ class ZFSSnap(object):
             LOGGER.info('Setting %s to read only', fs.name)
             fs.read_only = 'on'
 
-    def replicate(self, src_fs, dst_fs, label, base_snapshot, read_only=False):
-        _base_snapshot = src_fs.get_base_snapshot(label, base_snapshot)
-        snapshot = src_fs.snapshot(label, recursive=True)
-        LOGGER.info('Replicating %s to %s', src_fs.name, dst_fs.name)
-        send_cmd = src_fs.get_send_cmd(snapshot, _base_snapshot)
-        receive_cmd = dst_fs.get_receive_cmd()
+    def replicate(self, src_dataset, dst_dataset, label, base_snapshot, read_only=False):
+        _base_snapshot = src_dataset.get_base_snapshot(label, base_snapshot)
+        snapshot = src_dataset.snapshot(label, recursive=True)
+        LOGGER.info('Replicating %s to %s', src_dataset.name, dst_dataset.name)
+        send_cmd = src_dataset.get_send_cmd(snapshot, _base_snapshot)
+        receive_cmd = dst_dataset.get_receive_cmd()
         self._run_replication_cmd(send_cmd, receive_cmd)
 
         # CAUTION!
@@ -978,11 +979,11 @@ class ZFSSnap(object):
         snapshot.repl_status = 'success'
 
         # For completeness also set repl_status to success on destination.
-        # The snapshot list must be refreshed as the dst_fs snapshot cache
+        # The snapshot list must be refreshed as the dst_dataset snapshot cache
         # does not know that a new snapshot has arrived
-        dst_snapshot = dst_fs.get_snapshot(snapshot.snapshot_name, refresh=True)
+        dst_snapshot = dst_dataset.get_snapshot(snapshot.snapshot_name, refresh=True)
         dst_snapshot.repl_status = snapshot.repl_status
-        self._enforce_read_only(dst_fs, read_only)
+        self._enforce_read_only(dst_dataset, read_only)
 
     @staticmethod
     def _cleanup_sync_files(metadata, src_dir):
@@ -1026,12 +1027,12 @@ class ZFSSnap(object):
 
         metadata.write()
 
-    def receive_from_file(self, dst_fs, label, src_dir, metadata, read_only=False):
+    def receive_from_file(self, dst_dataset, label, src_dir, metadata, read_only=False):
         LOGGER.info('Selecting %s', metadata.path)
 
         # Make sure the cache is refreshed as the snapshot count might have
         # changed if multiple metadata files are processed in one run
-        previous_snapshot = dst_fs.get_latest_repl_snapshot(label, refresh=True)
+        previous_snapshot = dst_dataset.get_latest_repl_snapshot(label, refresh=True)
 
         if previous_snapshot and previous_snapshot.datetime >= metadata.datetime:
             LOGGER.warning('Ignoring %s as it is already applied or '
@@ -1039,41 +1040,41 @@ class ZFSSnap(object):
             self._cleanup_sync_files(metadata, src_dir)
             return
 
-        if metadata.depends_on and not dst_fs.get_snapshot(metadata.depends_on):
+        if metadata.depends_on and not dst_dataset.get_snapshot(metadata.depends_on):
             raise ReplicationException(
                 'The dependant snapshot %s does not exist on destination dataset %s' %
-                (metadata.depends_on, dst_fs.name))
+                (metadata.depends_on, dst_dataset.name))
 
         segments = self._get_segments(src_dir, metadata.segments)
-        cat_cmd = dst_fs.get_cat_cmd(segments)
-        receive_cmd = dst_fs.get_receive_cmd()
+        cat_cmd = dst_dataset.get_cat_cmd(segments)
+        receive_cmd = dst_dataset.get_receive_cmd()
         self._run_replication_cmd(cat_cmd, receive_cmd)
 
         # See comment in replicate()
         # Workaround for ZoL bug in initial replication fixed in 0.7.0?
-        dst_snapshot = Snapshot(dst_fs.host, '%s@%s' % (dst_fs.name, metadata.snapshot))
+        dst_snapshot = Snapshot(dst_dataset.host, '%s@%s' % (dst_dataset.name, metadata.snapshot))
         dst_snapshot.label = metadata.label
         dst_snapshot.version = metadata.version
 
         #dst_snapshot = self.get_snapshot(metadata.snapshot)
         dst_snapshot.repl_status = 'success'
-        self._enforce_read_only(dst_fs, read_only)
+        self._enforce_read_only(dst_dataset, read_only)
 
         # Cleanup files after marking the sync as success as we don't
         # really care if this goes well for the sake of sync integrity
         self._cleanup_sync_files(metadata, src_dir)
 
-    def send_to_file(self, src_fs, label, dst_dir, file_prefix='zfssnap', suffix_length=None,
+    def send_to_file(self, src_dataset, label, dst_dir, file_prefix='zfssnap', suffix_length=None,
                      split_size=None, base_snapshot=None):
-        _base_snapshot = src_fs.get_base_snapshot(label, base_snapshot)
-        snapshot = src_fs.snapshot(label, recursive=True)
+        _base_snapshot = src_dataset.get_base_snapshot(label, base_snapshot)
+        snapshot = src_dataset.snapshot(label, recursive=True)
         prefix = os.path.join(dst_dir, '%s_%s-' % (file_prefix, snapshot.timestamp))
 
         segments_log_pattern = r'^creating\sfile\s.*(%s[a-z]{%s}).*$' % (prefix, suffix_length)
         segments_log_re = re.compile(segments_log_pattern)
 
-        send_cmd = src_fs.get_send_cmd(snapshot, _base_snapshot)
-        split_cmd = src_fs.get_split_cmd(prefix, split_size, suffix_length)
+        send_cmd = src_dataset.get_send_cmd(snapshot, _base_snapshot)
+        split_cmd = src_dataset.get_split_cmd(prefix, split_size, suffix_length)
         output = self._run_replication_cmd(send_cmd, split_cmd)
         segments = []
 
@@ -1107,7 +1108,7 @@ class ZFSSnap(object):
         label = policy_config['label']
         host = Host(cmds=policy_config['cmds'])
         recursive = policy_config['recursive']
-        datasets = host.get_filesystems(
+        datasets = host.get_fsvols(
             policy_config.get('include', None),
             policy_config.get('exclude', None),
             recursive)
@@ -1134,7 +1135,7 @@ class ZFSSnap(object):
 
         policy_config = self.config.get_policy(policy)
         src_host = Host(policy_config['source']['cmds'])
-        src_fs = src_host.get_filesystem(policy_config['source']['dataset'])
+        src_dataset = src_host.get_fsvol(policy_config['source']['dataset'])
 
         ssh_params = dict()
         ssh_params['ssh'] = policy_config['source']['cmds']['ssh']
@@ -1142,27 +1143,26 @@ class ZFSSnap(object):
         ssh_params['host'] = policy_config['destination']['host']
 
         dst_host = Host(policy_config['destination']['cmds'], ssh_params)
-        dst_fs = dst_host.get_filesystem(policy_config['destination']['dataset'])
+        dst_dataset = dst_host.get_fsvol(policy_config['destination']['dataset'])
 
         label = policy_config['label']
         self._aquire_lock()
 
         if reset:
             LOGGER.warning('Reset is enabled. Reinitializing replication.')
-            if dst_fs:
-                LOGGER.warning('Destroying destination dataset')
-                dst_fs.destroy(recursive=True)
+            if dst_dataset:
+                dst_dataset.destroy(recursive=True)
         else:
             # If this is the first replication run the destination file system
             # might not exist
-            if not dst_fs:
-                dst_fs = Filesystem(dst_host, policy_config['destination']['dataset'])
+            if not dst_dataset:
+                dst_dataset = FsVol(dst_host, policy_config['destination']['dataset'])
 
             read_only = policy_config['destination']['read_only']
-            self.replicate(src_fs, dst_fs, label, base_snapshot, read_only)
+            self.replicate(src_dataset, dst_dataset, label, base_snapshot, read_only)
 
         keep = policy_config['keep']
-        src_fs.enforce_retention(keep, label, recursive=True, reset=reset,
+        src_dataset.enforce_retention(keep, label, recursive=True, reset=reset,
                                  replication=True)
         self._release_lock()
 
@@ -1183,26 +1183,25 @@ class ZFSSnap(object):
                 return
 
         dst_host = Host(policy_config['cmds'])
-        dst_fs = dst_host.get_filesystem(policy_config['destination']['dataset'])
+        dst_dataset = dst_host.get_fsvol(policy_config['destination']['dataset'])
 
         self._aquire_lock()
 
         if reset:
             LOGGER.warning('Reset is enabled. Reinitializing replication.')
-            if dst_fs:
-                LOGGER.warning('Destroying destination dataset')
-                dst_fs.destroy(recursive=True)
+            if dst_dataset:
+                dst_dataset.destroy(recursive=True)
         else:
             # If this is the first replication run the destination file system
             # might not exist
-            if not dst_fs:
-                dst_fs = Filesystem(dst_host, policy_config['destination']['dataset'])
+            if not dst_dataset:
+                dst_dataset = FsVol(dst_host, policy_config['destination']['dataset'])
 
             read_only = policy_config['destination']['read_only']
 
             try:
                 for metadata in sorted(metadata_files, key=attrgetter('datetime')):
-                    self.receive_from_file(dst_fs, label, src_dir, metadata, read_only)
+                    self.receive_from_file(dst_dataset, label, src_dir, metadata, read_only)
             except SegmentMissingException as e:
                 LOGGER.error(e)
 
@@ -1218,7 +1217,7 @@ class ZFSSnap(object):
         policy_config = self.config.get_policy(policy)
         label = policy_config['label']
         src_host = Host(policy_config['cmds'])
-        src_fs = src_host.get_filesystem(policy_config['source']['dataset'])
+        src_dataset = src_host.get_fsvol(policy_config['source']['dataset'])
         dst_dir = policy_config['destination']['dir']
         file_prefix = policy_config['file_prefix']
         suffix_length = policy_config['suffix_length']
@@ -1231,10 +1230,10 @@ class ZFSSnap(object):
             LOGGER.warning('Reset is enabled. Reinitializing replication.')
             LOGGER.warning('Cleaning up source replication snapshots')
         else:
-            self.send_to_file(src_fs, label, dst_dir, file_prefix, suffix_length,
+            self.send_to_file(src_dataset, label, dst_dir, file_prefix, suffix_length,
                               split_size, base_snapshot)
 
-        src_fs.enforce_retention(keep, label, recursive=True, reset=reset,
+        src_dataset.enforce_retention(keep, label, recursive=True, reset=reset,
                                  replication=True)
         self._release_lock()
 
@@ -1268,7 +1267,7 @@ class ZFSSnap(object):
         host = Host(policy_config['cmds'])
         recursive = policy_config['recursive']
         datasets = [
-            d for d in host.get_filesystems(
+            d for d in host.get_fsvols(
                 policy_config.get('include', None),
                 policy_config.get('exclude', None),
                 recursive)
@@ -1276,7 +1275,7 @@ class ZFSSnap(object):
 
         if list_mode == 'config':
             self._print_config(policy_config)
-        if list_mode == 'datasets':
+        if list_mode == 'fsvols':
             self._print_datasets(datasets)
         if list_mode == 'snapshots':
             self._print_snapshots(datasets, label)
@@ -1285,7 +1284,7 @@ class ZFSSnap(object):
         policy_config = self.config.get_policy(policy)
         label = policy_config['label']
         src_host = Host(policy_config['cmds'])
-        src_dataset = src_host.get_filesystem(policy_config['source']['dataset'])
+        src_dataset = src_host.get_fsvol(policy_config['source']['dataset'])
 
         if list_mode == 'config':
             self._print_config(policy_config)
@@ -1298,7 +1297,7 @@ class ZFSSnap(object):
         policy_config = self.config.get_policy(policy)
         label = policy_config['label']
         dst_host = Host(policy_config['cmds'])
-        dst_dataset = dst_host.get_filesystem(policy_config['destination']['dataset'])
+        dst_dataset = dst_host.get_fsvol(policy_config['destination']['dataset'])
 
         if dst_dataset:
             dst_datasets = [dst_dataset]
@@ -1317,7 +1316,7 @@ class ZFSSnap(object):
         policy_config = self.config.get_policy(policy)
         label = policy_config['label']
         src_host = Host(policy_config['source']['cmds'])
-        src_dataset = src_host.get_filesystem(policy_config['source']['dataset'])
+        src_dataset = src_host.get_fsvol(policy_config['source']['dataset'])
 
         ssh_params = dict()
         ssh_params['ssh'] = policy_config['source']['cmds']['ssh']
@@ -1325,7 +1324,7 @@ class ZFSSnap(object):
         ssh_params['host'] = policy_config['destination']['host']
 
         dst_host = Host(policy_config['destination']['cmds'], ssh_params)
-        dst_dataset = dst_host.get_filesystem(policy_config['destination']['dataset'])
+        dst_dataset = dst_host.get_fsvol(policy_config['destination']['dataset'])
 
         if dst_dataset:
             dst_datasets = [dst_dataset]
@@ -1334,7 +1333,7 @@ class ZFSSnap(object):
 
         if list_mode == 'config':
             self._print_config(policy_config)
-        if list_mode == 'datasets':
+        if list_mode == 'fsvols':
             self._print_datasets([src_dataset], 'SOURCE DATASET')
             self._print_datasets(dst_datasets, '\nDESTINATION DATASET')
         if list_mode == 'snapshots':
@@ -1384,7 +1383,7 @@ def main():
     mutex_group2.add_argument('--list', help='List policy information',
                               choices=[
                                   'snapshots',
-                                  'datasets',
+                                  'fsvols',
                                   'config',
                               ])
     mutex_group2.add_argument(
