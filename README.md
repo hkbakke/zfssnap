@@ -62,7 +62,7 @@ Remove all snapshots for a policy or re-initialize a replication policy
 
 List config, datasets and snapshots belonging to a policy
 
-    ./zfssnap.py --policy snapshot-all --list
+    ./zfssnap.py --policy snapshot-all --list snapshots
 List all options
 
     ./zfssnap.py --help
@@ -71,10 +71,10 @@ List all options
 To schedule snapshots crontab are normally used. This is an example root
 crontab for this purpose:
 
-    */15 *      *  *  *   /usr/local/sbin/zfssnap --log-level WARNING --policy snapshot-all
-    */5  *      *  *  *   /usr/local/sbin/zfssnap --log-level WARNING --policy replicate-vms
+    */15 *      *  *  *   /usr/local/bin/zfssnap --log-level WARNING --policy snapshot-all
+    */5  *      *  *  *   /usr/local/bin/zfssnap --log-level WARNING --policy replicate-vms
 
-* `zfssnap.py` has been symlinked to `/usr/local/sbin/zfssnap` for ease of use.
+* `zfssnap.py` has been symlinked to `/usr/local/bin/zfssnap` for ease of use.
 * `--quiet` can be used to supress all output, even warnings and errors.
   However, you are normally interested in getting a notification from cron if
   something goes wrong.
