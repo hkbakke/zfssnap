@@ -14,6 +14,7 @@ It is made for the following purposes:
 ## Requirements
 * Tested on Debian Jessie and Stretch
 * ZFS on Linux packages
+* pv
 * Python >= 3.4
 * Python modules: yaml, python-dateutil, scandir (Python < v3.5 only)
 

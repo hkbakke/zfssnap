@@ -916,14 +916,26 @@ class ZFSSnap(object):
                 yield metadata
 
     @staticmethod
-    def _run_replication_cmd(in_cmd, out_cmd):
-        LOGGER.debug('Replication command: \'%s | %s\'',
-                     ' '.join(in_cmd), ' '.join(out_cmd))
-
+    def _run_replication_cmd(in_cmd, out_cmd, pv=True):
         in_p = subprocess.Popen(in_cmd, stdout=subprocess.PIPE)
-        out_p = subprocess.Popen(out_cmd, stdin=in_p.stdout,
+        send = in_p
+
+        if pv:
+            pv_cmd = ['pv', '-rtb']
+            LOGGER.debug('Replication command: \'%s | %s | %s\'', ' '.join(in_cmd),
+                         ' '.join(pv_cmd), ' '.join(out_cmd))
+            pv_p = subprocess.Popen(pv_cmd, stdin=in_p.stdout,
+                                    stdout=subprocess.PIPE)
+            send = pv_p
+        else:
+            LOGGER.debug('Replication command: \'%s | %s\'', ' '.join(in_cmd),
+                         ' '.join(out_cmd))
+
+        out_p = subprocess.Popen(out_cmd, stdin=send.stdout,
                                  stdout=subprocess.PIPE)
         in_p.stdout.close()
+        if pv:
+            pv_p.stdout.close()
 
         # Do not capture stderr_data as I have found no way to capture stderr
         # from the send process properly when using pipes without it beeing
