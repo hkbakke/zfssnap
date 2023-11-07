@@ -204,7 +204,7 @@ class Config(object):
             config_file = '/etc/zfssnap/zfssnap.yml'
 
         with open(config_file) as f:
-            self.config = yaml.load(f)
+            self.config = yaml.safe_load(f)
 
         self.global_defaults = self._get_global_defaults()
 
